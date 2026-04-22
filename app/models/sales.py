@@ -4,10 +4,7 @@ from app.database import Base
 
 class Sales(Base):
     __tablename__ = "sales"
-
     id = Column(Integer, primary_key=True, index=True)
-
-    # 조직
     boomun = Column(String)
     bonbu = Column(String)
     team = Column(String)
@@ -15,16 +12,13 @@ class Sales(Base):
     agency_code = Column(String)
     agency_org = Column(String)
     agency = Column(String)
-
-    # 채널 / 구분
     channel1 = Column(String)
     channel2 = Column(String)
     channel3 = Column(String)
+    channel_sub = Column(String)   # 무선유통조직26년채널구분 (열19)
     sale_type = Column(String)
     kids = Column(String)
     k110 = Column(String)
-
-    # 판매 핵심
     sale_count = Column(Integer)
     subscriber = Column(Integer)
     net_add = Column(Integer)
@@ -34,8 +28,6 @@ class Sales(Base):
     lmnp = Column(Integer)
     mmnp = Column(Integer)
     vmnp = Column(Integer)
-
-    # 해지
     churn = Column(Integer)
     mnp_churn = Column(Integer)
     smnp_churn = Column(Integer)
@@ -43,8 +35,6 @@ class Sales(Base):
     mmnp_churn = Column(Integer)
     vmnp_churn = Column(Integer)
     forced_churn = Column(Integer)
-
-    # 기변 / 수익
     premium_change = Column(Integer)
     arpu = Column(Float)
     revenue = Column(Float)
@@ -52,7 +42,6 @@ class Sales(Base):
 
 class Commission(Base):
     __tablename__ = "commission"
-
     id = Column(Integer, primary_key=True, index=True)
     jisa_code = Column(String)
     jisa_name = Column(String)
@@ -74,3 +63,42 @@ class Commission(Base):
     refund_month = Column(String)
     pay_type = Column(String)
     amount = Column(Float)
+
+
+class DeviceSales(Base):
+    __tablename__ = "device_sales"
+    id = Column(Integer, primary_key=True, index=True)
+    bonbu = Column(String)
+    team = Column(String)
+    agency_code = Column(String)
+    agency = Column(String)
+    model_code = Column(String)
+    model_name = Column(String)
+    yyyymm = Column(String)
+    sale_count = Column(Integer)
+    revenue = Column(Float)
+
+
+class Inventory(Base):
+    __tablename__ = "inventory"
+    id = Column(Integer, primary_key=True, index=True)
+    ref_date = Column(String)
+    model_name = Column(String)
+    total = Column(Integer)
+    jisa = Column(Integer)
+    youngi = Column(Integer)
+    strategy = Column(Integer)
+    mns = Column(Integer)
+    ktshop = Column(Integer)
+    etc = Column(Integer)
+
+
+class Subscriber(Base):
+    __tablename__ = "subscriber"
+    id = Column(Integer, primary_key=True, index=True)
+    bonbu = Column(String)
+    team = Column(String)
+    agency_code = Column(String)
+    agency = Column(String)
+    ref_date = Column(String)
+    sub_count = Column(Integer)

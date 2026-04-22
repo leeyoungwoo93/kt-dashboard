@@ -1,14 +1,25 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# 데이터베이스 파일 경로 (현재 폴더에 kt_sales.db라는 이름으로 생성됨)
-SQLALCHEMY_DATABASE_URL = "sqlite:///./kt_sales.db"
+# 1. Railway의 DATABASE_URL 우선 확인, 없으면 로컬 SQLite 사용
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 
-# engine, SessionLocal, Base 이 세 가지 이름이 정확히 있어야 합니다
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+if SQLALCHEMY_DATABASE_URL:
+    # Railway의 postgres:// 형식을 sqlalchemy용 postgresql://로 변경
+    if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+        SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    # Postgres 연결 설정
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+else:
+    # 로컬 SQLite 연결 설정
+    SQLALCHEMY_DATABASE_URL = "sqlite:///./kt_sales.db"
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+
+# 공통 Session 및 Base 설정
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 Base = declarative_base()
