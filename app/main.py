@@ -764,4 +764,4 @@ async def get_ktoa():
 @app.get("/",response_class=HTMLResponse)
 async def dashboard():
     with open(os.path.join(os.path.dirname(__file__),"templates","index.html"),encoding="utf-8") as f:
-        return f.read()
+        return f.read() 
