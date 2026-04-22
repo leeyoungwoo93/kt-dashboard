@@ -18,6 +18,7 @@ class Sales(Base):
     channel_sub = Column(String)   # 무선유통조직26년채널구분 (열19)
     sale_type = Column(String)
     kids = Column(String)
+    foreigner = Column(String, default="")
     k110 = Column(String)
     sale_count = Column(Integer)
     subscriber = Column(Integer)

@@ -203,7 +203,21 @@ async def lifespan(app_):
     finally: db.close()
     yield
 
+from sqlalchemy import text
+
+def _migrate(engine):
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE sales ADD COLUMN IF NOT EXISTS foreigner VARCHAR DEFAULT ''"))
+            conn.commit()
+        except Exception:
+            pass
+
 Base.metadata.create_all(bind=engine)
+_migrate(engine)
+app = FastAPI(title="KT 무선판매 전략 대시보드", lifespan=lispan)
+Base.metadata.create_all(bind=engine)
+_migrate(engine) 
 app = FastAPI(title="KT 무선판매 전략 대시보드", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
