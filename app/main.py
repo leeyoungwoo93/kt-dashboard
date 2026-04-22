@@ -550,7 +550,7 @@ async def get_summary(
         for b in bonbu_detail:
             live = bonbu_sub_live.get(b["name"], 0)
             b["live_sub"] = live
-            b["penetration"] = round(b["sale"]/live*100, 2) if live > 0 else 0
+            b["penetration"] = round(b["sale"]/live*100, 2) if live > 0 else 0 
 
         # 단말 — yyyymm 동적 탐색
         all_months = [r[0] for r in db.query(DeviceSales.yyyymm).distinct()
