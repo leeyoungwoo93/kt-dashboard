@@ -918,7 +918,7 @@ function renderTab4(d){
       data:{labels:da.map(x=>x.name),datasets:[
         {label:fmtMM(cm),data:da.map(x=>x.value),backgroundColor:TEAL.slice(0,da.length),borderRadius:3,
           datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},formatter:v=>v>=maxV*0.2?fmt(v):'',anchor:'center',align:'center',clamp:true}},
-        {label:fmtMM(pm),data:da.map(x=>marMap[x.name]||0),backgroundColor:'#aaa66',borderRadius:3,datalabels:{display:false}}]},
+        {label:fmtMM(pm),data:da.map(x=>marMap[x.name]||0),backgroundColor:'#aaaaaa66',borderRadius:3,datalabels:{display:false}}]},
       options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}}},
         scales:{x:{ticks:{font:{size:7},maxRotation:35},grid:{display:false}},y:{beginAtZero:true,display:false}}}});
   }

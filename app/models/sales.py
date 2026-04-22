@@ -64,6 +64,7 @@ class Commission(Base):
     refund_month = Column(String)
     pay_type = Column(String)
     amount = Column(Float)
+    commission_policy_name = Column(String, default="")
 
 
 class DeviceSales(Base):

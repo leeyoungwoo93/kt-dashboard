@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "sqlite:///./kt_dashboard.db"
+    "sqlite:///./kt_d ashboard.db"
 )
 # Railway PostgreSQL URL 호환
 if DATABASE_URL.startswith("postgres://"):
