@@ -20,6 +20,7 @@ else:
         SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
     )
 
+
 # 공통 Session 및 Base 설정
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
