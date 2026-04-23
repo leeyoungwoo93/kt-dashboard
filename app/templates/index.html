@@ -218,27 +218,47 @@ tr:hover td{background:#f0f8f8}
 
 <!-- TAB 0 -->
 <div class="tab-panel active" id="tab0">
-  <div class="krow k8" id="kpiRow0"></div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
+  <button class="rst" onclick="openGoalModal()" style="font-size:10px">🎯 목표 설정</button>
+  <span id="goalBadge" style="font-size:9px;color:var(--t1);font-weight:700;margin-left:8px;align-self:center"></span>
+</div>
+<div class="krow k8" id="kpiRow0"></div>
   <div class="row r3">
-    <div class="card"><div class="ch"><div class="ct" id="mainChartTitle">본부별 판매 현황</div><div class="cs" id="mainChartHint">클릭·체크→드릴다운</div></div><canvas id="mainChart"></canvas></div>
+    <div class="card">
+  <div class="ch">
+    <div class="ct" id="mainChartTitle">본부별 판매 현황</div>
+    <div class="cs" id="mainChartHint">클릭·체크→드릴다운</div>
+    <div style="display:flex;gap:5px;align-items:center;margin-left:auto">
+      <span style="font-size:8px;color:var(--muted)">보기:</span>
+      <button class="dev-lv-btn active" id="viewSale" onclick="setMainView('sale')">판매</button>
+      <button class="dev-lv-btn" id="viewCombo" onclick="setMainView('combo')">판매+ARPU</button>
+      <button class="dev-lv-btn" id="viewGoal" onclick="setMainView('goal')">목표달성률</button>
+    </div>
+  </div>
+  <canvas id="mainChart"></canvas>
+</div>
     <div class="card"><div class="ch"><div class="ct">채널별 판매비중</div></div><canvas id="channelChart"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">구분별 비중</div></div><div id="pillSec" style="max-height:210px;overflow-y:auto"></div></div>
   </div>
   <div class="row r2w">
     <div class="card"><div class="ch"><div class="ct" id="subChartTitle">담당·지사별 현황</div><div class="cs" id="subChartHint">클릭→드릴다운</div></div><canvas id="subChart"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">TOP 15 대리점</div><div class="cs" id="paretoInfo"></div></div>
-      <div class="tw"><table><thead><tr><th>#</th><th>대리점</th><th>본부</th><th class="num">판매</th><th class="num">신규</th><th class="num">MNP</th><th class="num">기변</th><th class="num">해지</th><th class="num">순증</th><th class="num">ARPU</th></tr></thead><tbody id="agTbody"></tbody></table></div>
+      <div class="tw"><table><thead><tr><th>#</th><th>대리점</th><th>본부</th><th class="num">판매</th><th class="num">신규</th><th class="num">MNP</th><th class="num">기변</th><th class="num">해지</th><th class="num">순증</th><th class="num">ARPU</th><th></th></tr></thead><tbody id="agTbody"></tbody></table></div>
     </div>
   </div>
   <div class="card">
     <div class="ch"><div class="ct" id="detailTableTitle">본부별 종합 실적</div><div class="cs" id="bonbuSubDate"></div></div>
-    <div class="tw"><table><thead><tr><th>#</th><th id="col0hdr">본부</th><th class="num">판매량</th><th class="num">신규</th><th class="num">010</th><th class="num">M.MNP</th><th class="num">V.MNP</th><th class="num">기변</th><th class="num">해지</th><th class="num">순증</th><th class="num">ARPU</th><th class="num">재적가입자</th><th class="pct">MNP율</th><th class="pct">해지율</th><th class="pct">중고율</th><th class="pct">키즈%</th><th class="pct">외국인%</th><th class="pct">초이스%</th></tr></thead><tbody id="detailTbody"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>#</th><th id="col0hdr">본부</th><th class="num">판매량</th><th class="num">신규</th><th class="num">010</th><th class="num">M.MNP</th><th class="num">V.MNP</th><th class="num">기변</th><th class="num">해지</th><th class="num">순증</th><th class="num">ARPU</th><th class="num">재적가입자</th><th class="pct">MNP율</th><th class="pct">해지율</th><th class="pct">중고율</th><th class="pct">키즈%</th><th class="pct">외국인%</th><th class="pct">초이스%</th><th class="num">목표</th><th class="pct">달성률</th></tr></thead><tbody id="detailTbody"></tbody></table></div>
   </div>
 </div>
 
 <!-- TAB 1 -->
 <div class="tab-panel" id="tab1">
-  <div class="krow k6" id="kpiRow1"></div>
+  <div style="background:#fff9e6;border:1px solid #ffd966;border-radius:6px;padding:6px 12px;font-size:9px;color:#856404;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+  📊 <b>개발 예정:</b> 부가서비스 판매 데이터 및 매출 데이터 업로드 시 이 탭이 ①조직탭과 분리되어 매출/부가서비스 중심으로 재구성됩니다.
+  <span style="margin-left:auto;color:var(--muted)">현재: 판매 데이터 기반 Quality 지표만 표시</span>
+</div>
+<div class="krow k6" id="kpiRow1"></div>
   <div class="row r2">
     <div class="card"><div class="ch"><div class="ct">본부별 판매 vs ARPU</div><div class="cs">막대=판매 선=ARPU</div></div><canvas id="effCombo"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">채널별 건당매출</div></div><canvas id="revenuePerSale"></canvas></div>
@@ -251,7 +271,11 @@ tr:hover td{background:#f0f8f8}
 
 <!-- TAB 2 -->
 <div class="tab-panel" id="tab2">
-  <div class="krow k4" id="kpiRow2"></div>
+  <div style="background:#f0f0ff;border:1px solid #9999ff;border-radius:6px;padding:6px 12px;font-size:9px;color:#3333aa;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+  🔜 <b>검토 중:</b> 이 페이지는 가입자 유입/해지 분석을 다루며, 향후 KTOA 순증(시장경쟁) 페이지와 통합 또는 연계 예정입니다.
+  <span style="margin-left:auto;color:var(--muted)">자사이동 = 기변+010 (현재 기변으로 표시됨, 수정 예정)</span>
+</div>
+<div class="krow k4" id="kpiRow2"></div>
   <div class="row r2">
     <div class="card"><div class="ch"><div class="ct">본부별 가입구조</div><div class="cs">레이블 표시</div></div><canvas id="wfChart"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">MNP 공격 vs 방어</div></div><canvas id="mnpBalance"></canvas></div>
@@ -264,6 +288,18 @@ tr:hover td{background:#f0f8f8}
 
 <!-- TAB 3 -->
 <div class="tab-panel" id="tab3">
+  <!-- 채널 중분류 필터 -->
+  <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <span style="font-size:9px;font-weight:700;color:var(--muted)">채널 중분류:</span>
+    <button class="dev-lv-btn active" id="ch_all" onclick="setChGroup('all')">전체</button>
+    <button class="dev-lv-btn" id="ch_retail" onclick="setChGroup('retail')">소매</button>
+    <button class="dev-lv-btn" id="ch_wholesale" onclick="setChGroup('wholesale')">도매</button>
+    <button class="dev-lv-btn" id="ch_online" onclick="setChGroup('online')">비대면/온라인</button>
+    <button class="dev-lv-btn" id="ch_biz" onclick="setChGroup('biz')">기업</button>
+    <button class="dev-lv-btn" id="ch_door" onclick="setChGroup('door')">방판</button>
+    <button class="dev-lv-btn" id="ch_foreign" onclick="setChGroup('foreign')">외국인</button>
+    <span id="chGroupLabel" style="font-size:9px;color:var(--t1);font-weight:700;margin-left:4px"></span>
+  </div>
   <div class="row r2">
     <div class="card"><div class="ch"><div class="ct">채널별 판매량+ARPU</div><div class="cs">막대=판매 선=ARPU</div></div><canvas id="chCombo"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">해지율 vs MNP율</div></div><canvas id="chRateBar"></canvas></div>
@@ -318,6 +354,36 @@ tr:hover td{background:#f0f8f8}
     <div class="card"><div class="ch"><div class="ct">수수료 항목별</div><div class="cs">F300=활성화 F420=유지 F432=부가</div></div><canvas id="commItemChart"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">채널유형별 수수료</div></div><canvas id="commChChart"></canvas></div>
   </div>
+  <!-- AI 분류 기준 안내 + 뷰 전환 -->
+  <div style="background:#f0f8f8;border:1px solid var(--t6);border-radius:6px;padding:7px 12px;font-size:9px;color:var(--sub);margin-bottom:7px;display:flex;align-items:center;gap:8px">
+    🤖 <b>AI 실무 분류:</b> 정산ID(2603-MRA-01 등) 대신 실제 업무 기준으로 분류합니다.
+    <div style="margin-left:auto;display:flex;gap:4px">
+      <button class="dev-lv-btn active" id="commViewAI" onclick="setCommView('ai')">실무분류</button>
+      <button class="dev-lv-btn" id="commViewRaw" onclick="setCommView('raw')">정책코드</button>
+    </div>
+  </div>
+  <!-- 실무 분류 뷰 -->
+  <div id="commAIView" style="margin-bottom:7px">
+    <div class="row r2" style="margin-bottom:7px">
+      <div class="card">
+        <div class="ch"><div class="ct">가입유형별 수수료</div><div class="cs">MNP/기변/신규 기준</div></div>
+        <canvas id="commByTypeChart"></canvas>
+      </div>
+      <div class="card">
+        <div class="ch"><div class="ct">요금구간별 수수료</div><div class="cs">초이스/에센스/베이직/슬림</div></div>
+        <canvas id="commByPlanChart"></canvas>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:7px">
+      <div class="ch"><div class="ct">AI 분류 수수료 내역</div><div class="cs">정책명 파싱 → 실무 기준 자동 분류</div></div>
+      <div class="tw"><table><thead><tr>
+        <th>#</th><th>정책명</th><th>가입유형</th><th>요금구간</th><th>단말</th><th>채널</th>
+        <th class="num">지급액(만)</th><th class="pct">비중</th>
+      </tr></thead><tbody id="commAITbody"></tbody></table></div>
+    </div>
+  </div>
+  <!-- 정책코드 뷰 (기존) -->
+  <div id="commRawView" style="display:none;margin-bottom:7px">
   <div class="card" style="margin-bottom:7px">
     <div class="ch"><div class="ct">수수료 정책별 집계</div>
       <div style="display:flex;gap:6px;align-items:center">
@@ -328,6 +394,7 @@ tr:hover td{background:#f0f8f8}
     </div>
     <div class="tw"><table><thead><tr><th>#</th><th>정책명</th><th>정책코드</th><th>채널</th><th class="num">지급액(만)</th><th class="pct">비중</th></tr></thead><tbody id="commPolicyTbody"></tbody></table></div>
   </div>
+  </div><!-- /commRawView -->
   <div class="card"><div class="ch"><div class="ct">대리점별 수수료×판매</div></div>
     <div class="tw"><table><thead><tr><th>#</th><th>대리점</th><th class="num">판매량</th><th class="num">수수료(만)</th><th class="num">건당수수료</th><th class="num">ARPU</th><th class="pct">ROI(%)</th></tr></thead><tbody id="commTbody"></tbody></table></div>
   </div>
@@ -335,10 +402,22 @@ tr:hover td{background:#f0f8f8}
 
 <!-- TAB 6 -->
 <div class="tab-panel" id="tab6">
-  <div id="ktoaDiag"></div>
-  <div class="ktoa-summary" id="ktoaKpi"></div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+  <span style="font-size:9px;font-weight:700;color:var(--muted)">순증 구분:</span>
+  <button class="dev-lv-btn active" id="ktoaFltMNO" onclick="setKtoaFilter('MNO')">MNO만</button>
+  <button class="dev-lv-btn" id="ktoaFltMVNO" onclick="setKtoaFilter('MVNO')">MVNO만(V)</button>
+  <button class="dev-lv-btn" id="ktoaFltALL" onclick="setKtoaFilter('ALL')">M+V 전체</button>
+  <span style="font-size:9px;font-weight:700;color:var(--muted);margin-left:10px">기간:</span>
+  <input type="date" id="ktoaDateFrom" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:2px 6px" onchange="renderTab6()">
+  <span style="font-size:9px;color:var(--muted)">~</span>
+  <input type="date" id="ktoaDateTo" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:2px 6px" onchange="renderTab6()">
+  <button class="rst" onclick="resetKtoaFilter()" style="font-size:9px">초기화</button>
+  <span id="ktoaLatestLabel" style="font-size:9px;color:var(--muted);margin-left:auto"></span>
+</div>
+<div id="ktoaDiag"></div>
+<div class="ktoa-summary" id="ktoaKpi"></div>
   <div class="row r2">
-    <div class="card"><div class="ch"><div class="ct">일별 MNP순증 추이(MNO기준)</div><div class="cs" id="ktoaLatestLabel"></div></div><canvas id="ktoaTrend"></canvas></div>
+    <div class="card"><div class="ch"><div class="ct">일별 MNP순증 추이(MNO기준)</div><div class="cs"></div></div><canvas id="ktoaTrend"></canvas></div>
     <div class="card"><div class="ch"><div class="ct">누적 MNP 점유율</div></div><canvas id="ktoaShare"></canvas></div>
   </div>
   <div class="row r2">
@@ -352,6 +431,11 @@ tr:hover td{background:#f0f8f8}
 
 <!-- TAB 7: 판매정책·경쟁분석 -->
 <div class="tab-panel" id="tab7">
+  <!-- 정책탭 안내: 본부/담당 필터 무관 (전사 정책 공통) -->
+  <div style="background:#f0f8f8;border:1px solid var(--t6);border-radius:6px;padding:7px 12px;font-size:9px;color:var(--sub);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+    📌 <b>판매정책 탭은 전사 공통 정책입니다.</b> 상단 본부/담당 필터와 무관하게 전체 정책이 표시됩니다.
+    <span style="margin-left:auto;color:var(--muted)">정책 레이블화 체계: 날짜/모델/약정/가입유형/채널/금액 기준 행 데이터화 진행 예정</span>
+  </div>
   <div style="display:flex;gap:0;margin-bottom:10px;border-bottom:2px solid var(--border)">
     <div class="stab active" id="st0" onclick="switchSubTab(0)">📋 정책 맵</div>
     <div class="stab" id="st1" onclick="switchSubTab(1)">🧮 정책 계산기</div>
@@ -368,6 +452,24 @@ tr:hover td{background:#f0f8f8}
   </div>
 
   <!-- 계산기 -->
+  <!-- 정책 변동 빠른 메모 (sp0 하단) -->
+  <div id="sp0extra" style="display:none;margin-top:10px">
+    <div class="card">
+      <div class="ch">
+        <div class="ct">📝 정책 변동 빠른 메모</div>
+        <div class="cs">날짜/모델/가입유형/채널/금액 기준 임시 기록</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:5px;margin-bottom:6px">
+        <input id="pmDate" type="date" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 5px">
+        <input id="pmModel" placeholder="모델명" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 5px">
+        <input id="pmType" placeholder="MNP/기변/신규" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 5px">
+        <input id="pmChannel" placeholder="소매/도매" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 5px">
+        <input id="pmAmount" type="number" placeholder="금액(만원)" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 5px">
+        <button class="calc-btn" onclick="addPolicyMemo()" style="font-size:9px;padding:3px 8px">+ 추가</button>
+      </div>
+      <div id="policyMemoList" style="max-height:140px;overflow-y:auto;font-size:10px"></div>
+    </div>
+  </div>
   <div id="sp1" style="display:none">
     <div class="card">
       <div class="ch"><div class="ct">🧮 판매정책 수수료 계산기</div><div class="cs">단말·요금제·유형 선택 → 예상 수수료 자동 합산</div></div>
@@ -504,6 +606,48 @@ tr:hover td{background:#f0f8f8}
       ✅ <b>현재:</b> 본부/담당/대리점별 유지가입자 수 파악<br>
       🔜 <b>다음 단계:</b> 일반/키즈/외국인 세분화 → 가입자관리수수료 단가 연계<br>
       📊 <b>활용:</b> 유지가입자 × 수수료단가 = 대리점별 관리수수료 예측 / 지급내역 검증
+    </div>
+  </div>
+</div>
+
+<!-- 목표설정 모달 -->
+
+<!-- 유사대리점 비교 모달 -->
+<div class="modal" id="similarModal">
+  <div class="modal-inner" style="max-width:700px">
+    <span class="modal-close" onclick="document.getElementById('similarModal').classList.remove('open')">×</span>
+    <div class="m-title" id="simTitle">유사 대리점 비교</div>
+    <div class="m-sub" id="simSub">판매량 기준 유사 CAPA 대리점 비교</div>
+    <div id="simContent"></div>
+  </div>
+</div>
+
+<!-- 업데이트 알림 팝업 -->
+<div class="modal" id="updateModal" style="z-index:2000">
+  <div class="modal-inner" style="max-width:480px;border-top:4px solid var(--t1)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="font-size:20px">📡</span>
+      <div>
+        <div class="m-title" style="margin-bottom:0" id="updateTitle">KT 무선판매 대시보드 업데이트</div>
+        <div style="font-size:9px;color:var(--muted)" id="updateVersion"></div>
+      </div>
+    </div>
+    <div id="updateContent" style="font-size:10px;line-height:1.8;color:var(--sub);margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="rst" onclick="dismissUpdate()" style="font-size:10px">다시 보지 않기</button>
+      <button class="calc-btn" onclick="document.getElementById('updateModal').classList.remove('open')" style="font-size:10px">확인</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="goalModal">
+  <div class="modal-inner" style="max-width:500px">
+    <span class="modal-close" onclick="closeGoalModal()">×</span>
+    <div class="m-title">🎯 판매 목표 설정</div>
+    <div class="m-sub">본부별 월 목표 판매량을 입력하세요. 달성률 차트에 반영됩니다.</div>
+    <div id="goalInputArea" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="rst" onclick="resetGoals()">초기화</button>
+      <button class="calc-btn" onclick="saveGoals()">저장</button>
     </div>
   </div>
 </div>
@@ -764,7 +908,8 @@ async function updateDrillCharts(){
       <td class="num">${fmt(b.arpu)}</td><td class="num">${b.sub?fmt(b.sub):'-'}</td>
       <td class="pct">${pctS(b.mnp||0,sale)}%</td>
       <td class="pct" style="color:${b.churn/sale>.5?RED:b.churn/sale>.3?AMB:T1}">${pctS(b.churn,sale)}%</td>
-      <td class="pct">-</td><td class="pct">-</td><td class="pct">-</td><td class="pct">-</td></tr>`;
+      <td class="pct">-</td><td class="pct">-</td><td class="pct">-</td><td class="pct">-</td>
+      <td class="num">-</td><td class="pct">-</td></tr>`;
   }).join('');
 }
 
@@ -806,6 +951,81 @@ function renderTab(i){
 }
 
 // ─── TAB 0 ───
+let _mainView='sale'; // 'sale' | 'combo' | 'goal'
+let _goals={}; // {본부명: 목표수}
+try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
+
+function setMainView(v){
+  _mainView=v;
+  ['viewSale','viewCombo','viewGoal'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.classList.toggle('active',id==='view'+v.charAt(0).toUpperCase()+v.slice(1));
+  });
+  if(D)renderMainChart(D);
+}
+
+function renderMainChart(d){
+  const bd=d.bonbu_detail||[];
+  if(_mainView==='combo'){
+    combo('mainChart',bd.map(b=>b.name),bd.map(b=>b.sale),bd.map(b=>b.arpu),'판매량','ARPU');
+    // 클릭 드릴다운 재연결
+    const chart=charts['mainChart'];
+    if(chart)chart.options.onClick=(_,els)=>{if(els.length)drillDown(bd[els[0].index]?.name,'bonbu');};
+  } else if(_mainView==='goal'){
+    const labels=bd.map(b=>b.name);
+    const actuals=bd.map(b=>b.sale);
+    const goals=bd.map(b=>_goals[b.name]||0);
+    const rates=bd.map((b,i)=>goals[i]>0?Math.round(b.sale/goals[i]*100):0);
+    dc('mainChart');const el=document.getElementById('mainChart');if(!el)return;
+    charts['mainChart']=new Chart(el,{type:'bar',
+      data:{labels,datasets:[
+        {label:'실적',data:actuals,backgroundColor:actuals.map((v,i)=>goals[i]>0&&v>=goals[i]?T1+'cc':AMB+'cc'),borderRadius:3,yAxisID:'y',
+          datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},formatter:v=>fmt(v),anchor:'center',align:'center',clamp:true}},
+        {label:'목표',data:goals,type:'line',borderColor:RED,backgroundColor:'transparent',borderDash:[5,3],pointRadius:3,borderWidth:2,yAxisID:'y',
+          datalabels:{display:true,color:RED,font:{size:7,weight:'bold'},formatter:v=>v>0?fmt(v):'',anchor:'end',align:'top'}},
+      ]},
+      options:{responsive:true,
+        plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}}},
+        scales:{y:{beginAtZero:true,ticks:{font:{size:8}},grid:{color:'#f5f5f5'}}}}});
+    // 달성률 뱃지
+    const achieved=bd.filter((b,i)=>goals[i]>0&&b.sale>=goals[i]).length;
+    const total=bd.filter((_,i)=>goals[i]>0).length;
+    const badge=document.getElementById('goalBadge');
+    if(badge&&total>0)badge.textContent=`목표달성 ${achieved}/${total}개 본부`;
+  } else {
+    barV('mainChart',d.bonbu.map(x=>({n:x.name,v:x.value})),{onClick:n=>drillDown(n,'bonbu')});
+  }
+}
+
+function openGoalModal(){
+  if(!D)return;
+  const area=document.getElementById('goalInputArea');
+  if(!area)return;
+  const bonbus=D.bonbu_detail.map(b=>b.name);
+  area.innerHTML=bonbus.map(nm=>`
+    <div class="calc-f">
+      <label>${nm}</label>
+      <input type="number" id="goal_${escQ(nm)}" placeholder="목표 판매수" value="${_goals[nm]||''}" style="font-size:11px">
+    </div>`).join('');
+  document.getElementById('goalModal').classList.add('open');
+}
+function closeGoalModal(){document.getElementById('goalModal').classList.remove('open');}
+function saveGoals(){
+  if(!D)return;
+  D.bonbu_detail.forEach(b=>{
+    const el=document.getElementById('goal_'+b.name.replace(/[^a-zA-Z0-9가-힣]/g,'_'));
+    const anyEl=document.querySelector(`#goalInputArea input[id^="goal_"]`);
+    // 이름 그대로 찾기
+    const inputs=document.querySelectorAll('#goalInputArea input');
+    const names=D.bonbu_detail.map(x=>x.name);
+    inputs.forEach((inp,i)=>{const v=parseInt(inp.value)||0;if(v>0)_goals[names[i]]=v;else delete _goals[names[i]];});
+  });
+  try{localStorage.setItem('kt_goals',JSON.stringify(_goals));}catch(e){}
+  closeGoalModal();
+  setMainView('goal');
+}
+function resetGoals(){_goals={};try{localStorage.removeItem('kt_goals');}catch(e){}closeGoalModal();setMainView('sale');}
+
 function renderTab0(d){
   const t=d.totals,g=d.grand_totals,net=t.new_sub-t.churn;
   kpiRow('kpiRow0',[
@@ -819,10 +1039,13 @@ function renderTab0(d){
     {label:'ARPU',val:fmt(t.arpu),sub:'원'},
   ]);
   if(drillLevel==='bonbu'){
-    barV('mainChart',d.bonbu.map(x=>({n:x.name,v:x.value})),{onClick:n=>drillDown(n,'bonbu')});
+    renderMainChart(d);
     barH('subChart',d.team.slice(0,15).map(x=>({n:x.name,v:x.value})),{onClick:n=>drillDown(n,'team')});
     document.getElementById('detailTbody').innerHTML=d.bonbu_detail.map((b,i)=>{
       const sale=b.sale||1;
+      const goal=_goals[b.name]||0;
+      const rate=goal>0?Math.round(b.sale/goal*100):null;
+      const rateColor=rate===null?'var(--muted)':rate>=100?T1:rate>=80?AMB:RED;
       return `<tr><td>${i+1}</td><td style="font-weight:700;white-space:nowrap">${b.name}</td>
         <td class="num">${fmt(b.sale)}</td><td class="num">${fmt(b.new_sub)}</td><td class="num">-</td>
         <td class="num">${fmt(b.mmnp)}</td><td class="num">${fmt(b.vmnp)}</td>
@@ -835,10 +1058,12 @@ function renderTab0(d){
         <td class="pct">${pctS(b.used_cnt||0,sale)}%</td>
         <td class="pct">${pctS(b.kids_cnt||0,sale)}%</td>
         <td class="pct">${pctS(b.foreign_cnt||0,sale)}%</td>
-        <td class="pct">${pctS(b.k110_cnt||0,sale)}%</td></tr>`;
+        <td class="pct">${pctS(b.k110_cnt||0,sale)}%</td>
+        <td class="num" style="color:var(--muted)">${goal>0?fmt(goal):'-'}</td>
+        <td class="pct" style="color:${rateColor};font-weight:700">${rate!==null?rate+'%':'-'}</td></tr>`;
     }).join('');
   }
-  pie('channelChart',d.channel.map(x=>shortCh(x.name)),d.channel.map(x=>x.value),true);
+    pie('channelChart',d.channel.map(x=>shortCh(x.name)),d.channel.map(x=>x.value),true);
   document.getElementById('pillSec').innerHTML=`
     <div style="margin-bottom:7px"><div style="font-size:8px;color:var(--muted);font-weight:700;margin-bottom:3px">일반/중고</div>${pills(d.sale_type,t.sale,[T1,T2])}</div>
     <div style="margin-bottom:7px"><div style="font-size:8px;color:var(--muted);font-weight:700;margin-bottom:3px">내/외국인</div>${pills(d.foreigner,t.sale,[BLU,AMB])}</div>
@@ -853,7 +1078,8 @@ function renderTab0(d){
     <td class="num">${fmt(a.mnp)}</td><td class="num">${fmt(a.premium)}</td>
     <td class="num">${fmt(a.churn)}</td>
     <td class="num" style="color:${a.net>=0?T1:RED}">${a.net>=0?'+':''}${fmt(a.net)}</td>
-    <td class="num">${fmt(a.arpu)}</td></tr>`).join('');
+    <td class="num">${fmt(a.arpu)}</td>
+    <td><button class="rst" style="font-size:8px;padding:2px 5px" onclick="showSimilarAgency('${escQ(a.name)}',${a.sale})">유사비교</button></td></tr>`).join('');
   document.getElementById('bonbuSubDate').textContent=d.latest_sub_date?`재적기준: ${d.latest_sub_date}`:'';
 }
 
@@ -930,9 +1156,49 @@ function renderTab2(d){
   }).join('');
 }
 
+// ─── TAB 3 채널 중분류 ───
+let _chGroup='all';
+let _chGroupData=null; // 전체 channel_detail 캐시
+
+// 채널명 → 중분류 매핑
+const CH_GROUP_MAP={
+  '소매':['소매','소·매장','소매장','소.매장'],
+  'wholesale':['도매','도.매','도·매'],
+  'online':['비대면','온라인','비·대면','비-대면','비고객센터','비.고객','비고객'],
+  'biz':['기업','법인','B2C','대형B2C','소플라자','소·플라자'],
+  'door':['방판','방·판','방문','방-판'],
+  'foreign':['외국','외국인'],
+};
+
+function matchChGroup(name){
+  if(_chGroup==='all')return true;
+  const nm=name||'';
+  const patterns=CH_GROUP_MAP[_chGroup]||[];
+  return patterns.some(p=>nm.includes(p));
+}
+
+function setChGroup(g){
+  _chGroup=g;
+  document.querySelectorAll('[id^="ch_"]').forEach(b=>b.classList.remove('active'));
+  document.getElementById('ch_'+g)?.classList.add('active');
+  const labels={all:'전체 채널',retail:'소매 채널',wholesale:'도매 채널',online:'비대면/온라인',biz:'기업/B2C',door:'방판',foreign:'외국인'};
+  const lbl=document.getElementById('chGroupLabel');
+  if(lbl)lbl.textContent=g==='all'?'':('▸ '+labels[g]);
+  if(_chGroupData)renderTab3(_chGroupData);
+}
+
 // ─── TAB 3 ───
 function renderTab3(d){
-  const cd=d.channel_detail||[];if(!cd.length)return;
+  _chGroupData=d; // 캐시 저장
+  const allCd=d.channel_detail||[];if(!allCd.length)return;
+  // 중분류 필터 적용
+  const cd=_chGroup==='all'?allCd:allCd.filter(c=>matchChGroup(c.name));
+  if(!cd.length){
+    ['chCombo','chRateBar'].forEach(id=>dc(id));
+    document.getElementById('chHeatmap').innerHTML='<div style="color:var(--muted);padding:20px;text-align:center">선택한 중분류에 해당하는 채널이 없습니다</div>';
+    document.getElementById('chHealthTbody').innerHTML='';
+    return;
+  }
   combo('chCombo',cd.map(c=>shortCh(c.name)),cd.map(c=>c.sale),cd.map(c=>c.arpu));
   dc('chRateBar');const el=document.getElementById('chRateBar');if(el){
     charts['chRateBar']=new Chart(el,{type:'bar',
@@ -1088,6 +1354,49 @@ function renderDevChart(){
 }
 
 // ─── TAB 5 ───
+let _commView='ai';
+
+function setCommView(v){
+  _commView=v;
+  ['commViewAI','commViewRaw'].forEach(id=>document.getElementById(id)?.classList.remove('active'));
+  document.getElementById('commView'+v.charAt(0).toUpperCase()+v.slice(1))?.classList.add('active');
+  document.getElementById('commAIView').style.display=v==='ai'?'block':'none';
+  document.getElementById('commRawView').style.display=v==='raw'?'block':'none';
+}
+
+// 정책명 파싱 → 실무 분류
+function parseCommPolicy(name,channel,item){
+  const n=name||'';
+  // 가입유형
+  let saleType='기타';
+  if(/MNP|번호이동|이동/.test(n))saleType='MNP';
+  else if(/기변|기기변경/.test(n))saleType='기변';
+  else if(/신규|010/.test(n))saleType='신규';
+  else if(/유지|ARPU|리텐션/.test(n))saleType='유지';
+  else if(/부가|부가서비스|PACK|팩/.test(n))saleType='부가';
+  // 요금구간
+  let plan='미분류';
+  if(/110K|초이스|프리미어|최고|PREMIUM/.test(n))plan='초이스(110K↑)';
+  else if(/90K|에센스|ESSENCE/.test(n))plan='에센스(90K↑)';
+  else if(/61K|베이직|BASIC/.test(n))plan='베이직(61K)';
+  else if(/37K|슬림|LTE/.test(n))plan='슬림+(37K↓)';
+  // 단말
+  let device='공통';
+  if(/S26|S962/.test(n))device='S26';
+  else if(/Fold|Z Fold|폴드/.test(n))device='Fold';
+  else if(/Flip|Z Flip|플립/.test(n))device='Flip';
+  else if(/iPhone|아이폰|AIP/.test(n))device='iPhone';
+  else if(/S25|S931/.test(n))device='S25';
+  else if(/SIMple|심플/.test(n))device='SIMple';
+  // 항목코드
+  let itemType='기타';
+  if(item==='F300')itemType='활성화(F300)';
+  else if(item==='F420')itemType='유지(F420)';
+  else if(item==='F432')itemType='부가(F432)';
+  else if(item)itemType=item;
+  return {saleType,plan,device,itemType};
+}
+
 async function loadCommission(){
   const p=new URLSearchParams();
   selBonbu.forEach(b=>p.append('bonbu_list',b));
@@ -1095,7 +1404,56 @@ async function loadCommission(){
   selCh.forEach(c=>p.append('channel_list',c));
   const res=await(await fetch('/api/commission?'+p)).json();
   const tp=res.total||1;
-  document.getElementById('commPolicyTbody').innerHTML=(res.items||[]).map((p2,i)=>`<tr>
+  
+  // AI 분류 테이블
+  const items=res.items||[];
+  const aiItems=items.map(p2=>{
+    const cls=parseCommPolicy(p2.policy_name,p2.channel,p2.item);
+    return {...p2,...cls};
+  });
+  document.getElementById('commAITbody').innerHTML=aiItems.map((p2,i)=>`<tr>
+    <td>${i+1}</td>
+    <td style="font-weight:700;color:${T1};max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p2.policy_name}">${p2.policy_name}</td>
+    <td><span class="kbg ${p2.saleType==='MNP'?'ok':p2.saleType==='기변'?'warn':p2.saleType==='유지'?'neu':'bad'}">${p2.saleType}</span></td>
+    <td style="font-size:9px">${p2.plan}</td>
+    <td style="font-size:9px;color:var(--t1)">${p2.device}</td>
+    <td style="font-size:9px">${p2.channel||'-'}</td>
+    <td class="num" style="font-weight:700">${Math.round(p2.amount/1e4).toLocaleString()}만</td>
+    <td class="pct">${pctN(p2.amount,tp).toFixed(1)}%</td></tr>`).join('');
+  
+  // AI 분류 차트 - 가입유형별
+  const typeMap={};
+  aiItems.forEach(it=>{typeMap[it.saleType]=(typeMap[it.saleType]||0)+it.amount;});
+  const typeEntries=Object.entries(typeMap).sort((a,b)=>b[1]-a[1]);
+  dc('commByTypeChart');const tEl=document.getElementById('commByTypeChart');if(tEl){
+    charts['commByTypeChart']=new Chart(tEl,{type:'bar',
+      data:{labels:typeEntries.map(e=>e[0]),datasets:[{
+        data:typeEntries.map(e=>Math.round(e[1]/1e4)),
+        backgroundColor:[T1+'cc',T2+'cc',BLU+'cc',AMB+'cc',RED+'cc',PRP+'cc'].slice(0,typeEntries.length),
+        borderRadius:3,
+        datalabels:{display:true,color:'#fff',font:{size:8,weight:'bold'},formatter:v=>fmt(v)+'만',anchor:'center',align:'center',clamp:true}
+      }]},
+      options:{responsive:true,plugins:{legend:{display:false}},
+        scales:{x:{ticks:{font:{size:9}}},y:{beginAtZero:true,display:false}}}});
+  }
+  
+  // AI 분류 차트 - 요금구간별
+  const planMap={};
+  aiItems.forEach(it=>{planMap[it.plan]=(planMap[it.plan]||0)+it.amount;});
+  const planEntries=Object.entries(planMap).filter(e=>e[0]!=='미분류').sort((a,b)=>b[1]-a[1]);
+  dc('commByPlanChart');const pEl2=document.getElementById('commByPlanChart');if(pEl2){
+    charts['commByPlanChart']=new Chart(pEl2,{type:'bar',
+      data:{labels:planEntries.map(e=>e[0]),datasets:[{
+        data:planEntries.map(e=>Math.round(e[1]/1e4)),
+        backgroundColor:TEAL.slice(0,planEntries.length),borderRadius:3,
+        datalabels:{display:true,color:'#fff',font:{size:8,weight:'bold'},formatter:v=>fmt(v)+'만',anchor:'center',align:'center',clamp:true}
+      }]},
+      options:{responsive:true,plugins:{legend:{display:false}},
+        scales:{x:{ticks:{font:{size:8},maxRotation:25}},y:{beginAtZero:true,display:false}}}});
+  }
+  
+  // 기존 Raw 뷰
+  document.getElementById('commPolicyTbody').innerHTML=items.map((p2,i)=>`<tr>
     <td>${i+1}</td>
     <td style="font-weight:700;color:${T1};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p2.policy_name}">${p2.policy_name}</td>
     <td style="font-size:9px;color:var(--muted)">${p2.policy_code}</td>
@@ -1126,47 +1484,91 @@ function renderTab5(d){
 }
 
 // ─── TAB 6 KTOA ───
+let _ktoaFilter='MNO'; // MNO | MVNO | ALL
+
+function setKtoaFilter(f){
+  _ktoaFilter=f;
+  ['ktoaFltMNO','ktoaFltMVNO','ktoaFltALL'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.classList.remove('active');
+  });
+  const map={MNO:'ktoaFltMNO',MVNO:'ktoaFltMVNO',ALL:'ktoaFltALL'};
+  document.getElementById(map[f])?.classList.add('active');
+  renderTab6();
+}
+
+function resetKtoaFilter(){
+  _ktoaFilter='MNO';
+  document.getElementById('ktoaDateFrom').value='';
+  document.getElementById('ktoaDateTo').value='';
+  setKtoaFilter('MNO');
+}
+
 async function renderTab6(){
   if(!KTOA){KTOA=await(await fetch('/api/ktoa')).json();}
   const rows=KTOA.rows||[];
   if(!rows.length){document.getElementById('ktoaKpi').innerHTML='<div style="color:var(--muted);padding:20px">KTOA 데이터를 업로드해주세요</div>';return;}
-  // 비정상 값 필터링: 순증이 ±5000 초과면 데이터 이상
-  const valid=rows.filter(r=>r['KT_순증MNO']!==undefined&&Math.abs(r['KT_순증MNO']||0)<=5000);
-  if(!valid.length){document.getElementById('ktoaKpi').innerHTML='<div style="color:var(--muted);padding:20px">KTOA 파싱 오류 - 파일을 다시 업로드해주세요</div>';return;}
+  
+  // 기간 필터
+  const dateFrom=document.getElementById('ktoaDateFrom')?.value||'';
+  const dateTo=document.getElementById('ktoaDateTo')?.value||'';
+  
+  let valid=rows.filter(r=>r['KT_순증MNO']!==undefined&&Math.abs(r['KT_순증MNO']||0)<=5000);
+  if(dateFrom)valid=valid.filter(r=>r.date>=dateFrom);
+  if(dateTo)valid=valid.filter(r=>r.date<=dateTo);
+  if(!valid.length){document.getElementById('ktoaKpi').innerHTML='<div style="color:var(--muted);padding:20px">해당 기간 데이터 없음</div>';return;}
+  
+  // 필터에 따른 집계 컬럼 결정
+  const isMNO=_ktoaFilter==='MNO';
+  const isALL=_ktoaFilter==='ALL';
+  const isMVNO=_ktoaFilter==='MVNO';
+  
   const sum=col=>valid.reduce((s,r)=>s+(r[col]||0),0);
+  
+  // MNO 기준
   const ktMNO=sum('KT_순증MNO'),sktMNO=sum('SKT_순증MNO'),lguMNO=sum('LGU+_순증MNO');
-  const ktAll=sum('KT_순증전체'),ktIn=sum('KT_유입MNO'),ktOut=sum('KT_이탈MNO');
+  // 전체(MVNO포함) 기준
+  const ktAll=sum('KT_순증전체');
+  // MVNO만 = 전체 - MNO
+  const ktMVNO=ktAll-ktMNO;
+  
+  const ktIn=sum('KT_유입MNO'),ktOut=sum('KT_이탈MNO');
   const ktInA=sum('KT_유입전체'),ktOutA=sum('KT_이탈전체');
+  
+  // 표시할 KT 순증값
+  const ktDisplay=isMNO?ktMNO:isALL?ktAll:ktMVNO;
+  const filterLabel=isMNO?'MNO':isALL?'MNO+MVNO':'MVNO(알뜰폰)';
+  
   const latest=valid[valid.length-1];
-    // 데이터 진단
-  const sampleKT=valid[valid.length-1]?.['KT_순증MNO']||0;
-  const isAbnormal=Math.abs(sampleKT)>500;
-  if(isAbnormal){
-    const diagEl=document.getElementById('ktoaDiag');
-    if(diagEl)diagEl.innerHTML=`<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:7px 12px;font-size:10px;color:#856404;margin-bottom:6px">
-      ⚠️ <b>데이터 이상 감지:</b> 최신 KT 순증값(${fmt(sampleKT)})이 비정상적으로 큽니다. KTOA 파일 단위를 확인해주세요 (단위: 명 기준 파일 필요).
-      예상 정상값: 하루 KT MNO 순증 -100~+100 수준</div>`;
-  } else {
-    const diagEl=document.getElementById('ktoaDiag');
-    if(diagEl)diagEl.innerHTML='';
-  }
   document.getElementById('ktoaLatestLabel').textContent=latest?
     `최신:${latest.date} KT(MNO)${(latest['KT_순증MNO']||0)>=0?'+':''}${fmt(latest['KT_순증MNO']||0)} / 전체${(latest['KT_순증전체']||0)>=0?'+':''}${fmt(latest['KT_순증전체']||0)}`:'';
+  
+  // 데이터 진단
+  const sampleKT=valid[valid.length-1]?.['KT_순증MNO']||0;
+  const isAbnormal=Math.abs(sampleKT)>500;
+  const diagEl=document.getElementById('ktoaDiag');
+  if(diagEl)diagEl.innerHTML=isAbnormal?`<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:7px 12px;font-size:10px;color:#856404;margin-bottom:6px">
+    ⚠️ <b>데이터 이상 감지:</b> 최신 KT MNO 순증(${fmt(sampleKT)})이 비정상적으로 큽니다. KTOA 파일 단위(명 기준) 확인 필요.</div>`:'';
+  
   document.getElementById('ktoaKpi').innerHTML=`
-    <div class="ktoa-card"><div class="ktoa-op" style="color:${T1}">KT MNP순증(MNO)</div><div class="ktoa-val" style="color:${T1}">${(ktMNO>=0?'+':'')+fmt(ktMNO)}</div><div class="ktoa-sub">유입${fmt(ktIn)}-이탈${fmt(ktOut)}</div></div>
+    <div class="ktoa-card"><div class="ktoa-op" style="color:${T1}">KT 순증 <small style="font-size:8px">(${filterLabel})</small></div><div class="ktoa-val" style="color:${T1}">${(ktDisplay>=0?'+':'')+fmt(ktDisplay)}</div><div class="ktoa-sub">${isMNO?`유입${fmt(ktIn)}-이탈${fmt(ktOut)}`:isALL?`유입${fmt(ktInA)}-이탈${fmt(ktOutA)}`:'MVNO이동'}</div></div>
     <div class="ktoa-card"><div class="ktoa-op txt-b">SKT MNP순증(MNO)</div><div class="ktoa-val txt-b">${(sktMNO>=0?'+':'')+fmt(sktMNO)}</div><div class="ktoa-sub">동기간</div></div>
     <div class="ktoa-card"><div class="ktoa-op txt-g">LGU+ MNP순증(MNO)</div><div class="ktoa-val txt-g">${(lguMNO>=0?'+':'')+fmt(lguMNO)}</div><div class="ktoa-sub">동기간</div></div>
-    <div class="ktoa-card"><div class="ktoa-op" style="color:${T4}">KT순증(MVNO포함)</div><div class="ktoa-val" style="color:${T4}">${(ktAll>=0?'+':'')+fmt(ktAll)}</div><div class="ktoa-sub">유입${fmt(ktInA)}-이탈${fmt(ktOutA)}</div></div>
+    <div class="ktoa-card"><div class="ktoa-op" style="color:${T4}">KT순증(전체)</div><div class="ktoa-val" style="color:${T4}">${(ktAll>=0?'+':'')+fmt(ktAll)}</div><div class="ktoa-sub">MNO+MVNO</div></div>
     <div class="ktoa-card"><div class="ktoa-op txt-r">KT 이탈(MNO)</div><div class="ktoa-val txt-r">-${fmt(ktOut)}</div><div class="ktoa-sub">KT→타사</div></div>`;
+  
   const recent=valid.slice(-60);
   const lbl=recent.map(r=>r.date?.slice(5)||'');
+  
+  // 필터에 따른 트렌드 데이터
+  const ktTrendData=recent.map(r=>isMNO?(r['KT_순증MNO']||0):isALL?(r['KT_순증전체']||0):(r['KT_순증전체']||0)-(r['KT_순증MNO']||0));
+  
   line('ktoaTrend',lbl,[
-    {label:'KT(MNO)',data:recent.map(r=>r['KT_순증MNO']||0),borderColor:T1,backgroundColor:T1+'22',fill:true,tension:.3,pointRadius:2},
+    {label:`KT(${filterLabel})`,data:ktTrendData,borderColor:T1,backgroundColor:T1+'22',fill:true,tension:.3,pointRadius:2},
     {label:'SKT(MNO)',data:recent.map(r=>r['SKT_순증MNO']||0),borderColor:BLU,backgroundColor:'transparent',tension:.3,pointRadius:2},
     {label:'LGU+(MNO)',data:recent.map(r=>r['LGU+_순증MNO']||0),borderColor:GRN,backgroundColor:'transparent',tension:.3,pointRadius:2},
-    {label:'KT(전체)',data:recent.map(r=>r['KT_순증전체']||0),borderColor:T4,backgroundColor:'transparent',tension:.3,pointRadius:2,borderDash:[4,2]},
   ],true);
-  pie('ktoaShare',['KT','SKT','LGU+'],[Math.abs(ktMNO),Math.abs(sktMNO),Math.abs(lguMNO)],true);
+  
+  pie('ktoaShare',[`KT`,`SKT`,`LGU+`],[Math.abs(ktMNO),Math.abs(sktMNO),Math.abs(lguMNO)],true);
   const r14=valid.slice(-14);
   grouped('ktoaKtDetail',r14.map(r=>r.date?.slice(5)||''),[
     {label:'유입(SKT→KT)',data:r14.map(r=>r['KT←SKT']||0),backgroundColor:T2+'cc',borderRadius:2},
@@ -1177,19 +1579,22 @@ async function renderTab6(){
   const weeks=[];
   for(let i=valid.length-1;i>=0&&weeks.length<4;){
     let w={kt:0,skt:0,lgu:0,label:''};
-    for(let j=0;j<7&&i>=0;j++,i--){w.kt+=valid[i]['KT_순증MNO']||0;w.skt+=valid[i]['SKT_순증MNO']||0;w.lgu+=valid[i]['LGU+_순증MNO']||0;w.label=valid[i].date?.slice(5)||'';}
+    for(let j=0;j<7&&i>=0;j++,i--){
+      w.kt+=isMNO?(valid[i]['KT_순증MNO']||0):isALL?(valid[i]['KT_순증전체']||0):(valid[i]['KT_순증전체']||0)-(valid[i]['KT_순증MNO']||0);
+      w.skt+=valid[i]['SKT_순증MNO']||0;w.lgu+=valid[i]['LGU+_순증MNO']||0;w.label=valid[i].date?.slice(5)||'';
+    }
     weeks.unshift(w);
   }
   dc('ktoaWeekly');const wEl=document.getElementById('ktoaWeekly');if(wEl){
     charts['ktoaWeekly']=new Chart(wEl,{type:'bar',
       data:{labels:weeks.map(w=>w.label+'~'),datasets:[
-        {label:'KT(MNO)',data:weeks.map(w=>w.kt),backgroundColor:T1+'cc',borderRadius:3,
+        {label:`KT(${filterLabel})`,data:weeks.map(w=>w.kt),backgroundColor:T1+'cc',borderRadius:3,
           datalabels:{display:true,color:'#fff',font:{size:8,weight:'bold'},formatter:v=>`${v>=0?'+':''}${fmt(v)}`,anchor:'center',align:'center'}},
         {label:'SKT',data:weeks.map(w=>w.skt),backgroundColor:BLU+'cc',borderRadius:3,datalabels:{display:false}},
         {label:'LGU+',data:weeks.map(w=>w.lgu),backgroundColor:GRN+'cc',borderRadius:3,datalabels:{display:false}},
       ]},
       options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}}},
-        scales:{x:{ticks:{font:{size:8}},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:8}},grid:{color:'#f0f0f0'}}}}});
+        scales:{x:{ticks:{font:{size:8}},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:8}}}}}});
   }
   document.getElementById('ktoaTbody').innerHTML=[...valid].reverse().slice(0,20).map(r=>{
     const ktm=r['KT_순증MNO']||0,kta=r['KT_순증전체']||0,sktm=r['SKT_순증MNO']||0,lgum=r['LGU+_순증MNO']||0;
@@ -1235,6 +1640,9 @@ function switchSubTab(i){
     const sp=document.getElementById(`sp${j}`);
     if(sp)sp.style.display=i===j?'block':'none';
   });
+  // sp0extra(메모섹션) 표시
+  const sp0ex=document.getElementById('sp0extra');
+  if(sp0ex)sp0ex.style.display=i===0?'block':'none';
   currentSubTab=i;
   if(i===0)renderPolicyMap();
   if(i===2)renderComp();
@@ -1577,6 +1985,80 @@ async function renderTab8(d){
   }
 }
 
+
+// ─── 유사대리점 비교 ───
+function showSimilarAgency(name, sale){
+  if(!D)return;
+  const all=D.agency_detail||[];
+  // 판매량 ±30% 유사 대리점
+  const range=sale*0.3;
+  const similar=all.filter(a=>a.name!==name&&Math.abs(a.sale-sale)<=range)
+    .sort((a,b)=>Math.abs(a.sale-sale)-Math.abs(b.sale-sale)).slice(0,9);
+  const target=all.find(a=>a.name===name)||{name,sale,arpu:0,mnp:0,churn:0,net:0,new_sub:0};
+  const peers=[target,...similar];
+  document.getElementById('simTitle').textContent=`유사 대리점 비교: ${name}`;
+  document.getElementById('simSub').textContent=`판매량 ${fmt(sale)}건 기준 ±30% CAPA 대리점 ${similar.length}개`;
+  document.getElementById('simContent').innerHTML=`
+    <table class="fee-tbl" style="margin-top:10px">
+      <thead><tr><th>대리점</th><th>판매</th><th>신규</th><th>MNP</th><th>해지</th><th>순증</th><th>ARPU</th><th>비고</th></tr></thead>
+      <tbody>${peers.map((a,i)=>`<tr style="${i===0?'background:#e6f5f5;font-weight:700':''}">
+        <td style="text-align:left">${a.name}${i===0?' ★':''}</td>
+        <td>${fmt(a.sale)}</td><td>${fmt(a.new_sub||0)}</td><td>${fmt(a.mnp||0)}</td>
+        <td>${fmt(a.churn||0)}</td>
+        <td style="color:${(a.net||0)>=0?'var(--t1)':'#c0001a'}">${(a.net||0)>=0?'+':''}${fmt(a.net||0)}</td>
+        <td>${fmt(a.arpu||0)}</td>
+        <td style="font-size:9px;color:var(--muted)">${i===0?'기준':a.sale>sale?'▲고CAPA':'▼저CAPA'}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  document.getElementById('similarModal').classList.add('open');
+}
+
+// ─── 정책 변동 메모 ───
+let _policyMemos=[];
+try{_policyMemos=JSON.parse(localStorage.getItem('kt_policy_memos')||'[]');}catch(e){}
+
+function addPolicyMemo(){
+  const date=document.getElementById('pmDate')?.value||new Date().toISOString().slice(0,10);
+  const model=document.getElementById('pmModel')?.value?.trim()||'';
+  const type=document.getElementById('pmType')?.value?.trim()||'';
+  const channel=document.getElementById('pmChannel')?.value?.trim()||'';
+  const amount=document.getElementById('pmAmount')?.value||'';
+  if(!model&&!amount)return;
+  const memo={date,model,type,channel,amount,id:Date.now()};
+  _policyMemos.unshift(memo);
+  try{localStorage.setItem('kt_policy_memos',JSON.stringify(_policyMemos.slice(0,100)));}catch(e){}
+  renderPolicyMemos();
+  ['pmModel','pmType','pmChannel','pmAmount'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+}
+
+function deletePolicyMemo(id){
+  _policyMemos=_policyMemos.filter(m=>m.id!==id);
+  try{localStorage.setItem('kt_policy_memos',JSON.stringify(_policyMemos));}catch(e){}
+  renderPolicyMemos();
+}
+
+function renderPolicyMemos(){
+  const el=document.getElementById('policyMemoList');if(!el)return;
+  if(!_policyMemos.length){el.innerHTML='<div style="color:var(--muted);padding:6px">기록 없음</div>';return;}
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:10px">
+    <thead><tr style="background:#f0f8f8">
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">날짜</th>
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">모델</th>
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">가입유형</th>
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">채널</th>
+      <th style="padding:3px 6px;text-align:right;font-size:8px;color:var(--muted)">금액(만)</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${_policyMemos.map(m=>`<tr style="border-bottom:1px solid var(--bg)">
+      <td style="padding:3px 6px;color:var(--muted)">${m.date}</td>
+      <td style="padding:3px 6px;font-weight:700;color:var(--t1)">${m.model}</td>
+      <td style="padding:3px 6px">${m.type}</td>
+      <td style="padding:3px 6px">${m.channel}</td>
+      <td style="padding:3px 6px;text-align:right;font-weight:700">${m.amount?m.amount+'만':'-'}</td>
+      <td style="padding:3px 6px"><span onclick="deletePolicyMemo(${m.id})" style="cursor:pointer;color:var(--muted);font-size:10px">✕</span></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
 // ─── Upload ───
 function setupUpload(inputId,url,onDone){
   document.getElementById(inputId).addEventListener('change',async e=>{
@@ -1602,6 +2084,41 @@ setupUpload('fComm','/upload/commission',async()=>{await loadData();if(currentTa
 setupUpload('fKtoa','/upload/ktoa',async()=>{KTOA=null;if(currentTab===6)renderTab6();});
 
 // ─── Init ───
+
+// ─── 업데이트 알림 시스템 ───
+const DASHBOARD_VERSION='2026-04-23-v3';
+const UPDATE_LOG=[
+  {version:'2026-04-23-v3',date:'2026-04-23',changes:[
+    '✅ ⑨ 가입자분석 탭 신설 (유지가입자 변동·추이·구분별 분석)',
+    '✅ 조직탭: 판매+ARPU 콤보 차트, 목표달성률 차트, 유사대리점 비교',
+    '✅ KTOA탭: MNO/MVNO/전체 필터 + 기간 필터',
+    '✅ 채널건전성: 소매/도매/비대면 등 중분류 드릴다운',
+    '✅ 수수료탭: AI 실무 분류 (가입유형·요금구간·단말별)',
+    '✅ 정책탭: 정책 변동 빠른 메모 기능',
+    '✅ 110K → 초이스(110K↑) 전체 변경',
+    '✅ 단말탭: 삼성/애플 필터 + 클릭 드릴다운',
+  ]},
+];
+
+function checkUpdate(){
+  try{
+    const seen=localStorage.getItem('kt_dash_version');
+    if(seen===DASHBOARD_VERSION)return;
+    const log=UPDATE_LOG.find(u=>u.version===DASHBOARD_VERSION);
+    if(!log)return;
+    document.getElementById('updateVersion').textContent=`버전 ${log.version} | ${log.date}`;
+    document.getElementById('updateContent').innerHTML=
+      '<b style="font-size:11px;color:var(--t1)">이번 업데이트 내용:</b><br>'+
+      log.changes.map(c=>`<div style="padding:2px 0">${c}</div>`).join('');
+    document.getElementById('updateModal').classList.add('open');
+  }catch(e){}
+}
+
+function dismissUpdate(){
+  try{localStorage.setItem('kt_dash_version',DASHBOARD_VERSION);}catch(e){}
+  document.getElementById('updateModal').classList.remove('open');
+}
+
 async function init(){
   const f=await(await fetch('/api/filters')).json();
   buildDD('listBonbu',f.bonbu_list,selBonbu,'toggleBonbu',null);
@@ -1613,6 +2130,10 @@ async function init(){
   if(currentTab===6)renderTab6();
   if(currentTab===7)renderTab7();
   if(currentTab===8)renderTab8(D);
+  // 초기화 완료 후 업데이트 알림 체크
+  setTimeout(checkUpdate, 800);
+  // 정책 메모 초기 렌더링
+  renderPolicyMemos();
 }
 init();
 </script>
