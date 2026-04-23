@@ -252,7 +252,12 @@ def _load_ktoa(contents):
     rows = rows[rows["date"].notna()].copy()
     rows["date"] = rows["date"].astype(str).str[:10]
     for c in rows.columns[1:]:
-        rows[c] = pd.to_numeric(rows[c].astype(str).str.replace(",", ""), errors="coerce").fillna(0).astype(int)
+        rows[c] = pd.to_numeric(
+        rows[c].astype(str)
+            .str.replace(",", "").str.replace(" ", "")
+            .str.replace("천", "000").str.strip(),
+        errors="coerce"
+    ).fillna(0).astype(int)
     rows = rows[rows["date"] != "일합계"].copy()
     rows = rows[rows["date"].str.match(r"\d{4}-\d{2}-\d{2}")].copy()
     rows = rows.sort_values("date").reset_index(drop=True)
@@ -757,6 +762,110 @@ async def get_commission(
         total=float(db.query(func.sum(Commission.amount)).filter(Commission.amount>0).scalar() or 0)
         return {"items":items,"total":total}
     finally: db.close()
+
+
+# ── Subscriber Analysis ───────────────────────────────────────────
+@app.get("/api/subscriber")
+async def get_subscriber_analysis(
+    bonbu_list: List[str] = Query(default=[]),
+    team_list: List[str] = Query(default=[]),
+):
+    db = SessionLocal()
+    try:
+        # 전체 날짜 목록 (최근 60일)
+        all_dates = [r[0] for r in db.query(Subscriber.ref_date).distinct()
+            .filter(Subscriber.ref_date!="").order_by(Subscriber.ref_date.desc()).limit(60).all()]
+        if not all_dates:
+            return {"dates":[],"bonbu_trend":[],"total_trend":[]}
+
+        def sf(q):
+            if bonbu_list: q = q.filter(Subscriber.bonbu.in_(bonbu_list))
+            if team_list: q = q.filter(Subscriber.team.in_(team_list))
+            return q
+
+        latest = all_dates[0]
+        prev   = all_dates[1] if len(all_dates) > 1 else latest
+        # 본부별 최신 가입자 수
+        bonbu_latest = {r[0]: int(r[1] or 0) for r in
+            sf(db.query(Subscriber.bonbu, func.sum(Subscriber.sub_count)))
+            .filter(Subscriber.ref_date==latest, Subscriber.bonbu!="")
+            .group_by(Subscriber.bonbu).all()}
+        bonbu_prev = {r[0]: int(r[1] or 0) for r in
+            sf(db.query(Subscriber.bonbu, func.sum(Subscriber.sub_count)))
+            .filter(Subscriber.ref_date==prev, Subscriber.bonbu!="")
+            .group_by(Subscriber.bonbu).all()}
+        bonbu_list_data = []
+        for nm, cnt in sorted(bonbu_latest.items(), key=lambda x:-x[1]):
+            pv = bonbu_prev.get(nm, 0)
+            bonbu_list_data.append({
+                "name": nm, "count": cnt, "prev": pv,
+                "change": cnt - pv,
+                "change_pct": round((cnt-pv)/pv*100, 2) if pv>0 else 0,
+            })
+        # 전체 추이 (날짜별)
+        dates_asc = sorted(all_dates)
+        total_trend = []
+        for dt in dates_asc:
+            total = int(sf(db.query(func.sum(Subscriber.sub_count)))
+                .filter(Subscriber.ref_date==dt).scalar() or 0)
+            total_trend.append({"date": dt, "total": total})
+
+        return {
+            "latest_date": latest,
+            "prev_date": prev,
+            "bonbu": bonbu_list_data,
+            "total_trend": total_trend,
+            "total_latest": sum(bonbu_latest.values()),
+            "total_prev": sum(bonbu_prev.values()),
+        }
+    finally:
+        db.close()
+
+
+# ── Device Hierarchy (4-level drilldown) ─────────────────────────
+@app.get("/api/device/hierarchy")
+async def get_device_hierarchy(
+    bonbu_list: List[str] = Query(default=[]),
+    level: str = "l1",
+    parent: str = None,
+):
+    db = SessionLocal()
+    try:
+        all_months = [r[0] for r in db.query(DeviceSales.yyyymm).distinct()
+            .filter(DeviceSales.yyyymm!="",DeviceSales.yyyymm!="nan")
+            .order_by(DeviceSales.yyyymm.desc()).limit(2).all()]
+        cur_mm = all_months[0] if all_months else ""
+        prev_mm = all_months[1] if len(all_months)>1 else ""
+        if not cur_mm:
+            return {"items":[],"cur_mm":"","prev_mm":""}
+
+        def af(q):
+            if bonbu_list: q = q.filter(DeviceSales.bonbu.in_(bonbu_list))
+            return q
+
+        # model_name 구조: 예) SM-S962NK256BK (대표+세부+용량+색상 합쳐진 경우 많음)
+        # L1: 대표단말 (model_code 앞 3~4자 or 별도 분류)
+        # 단순하게: model_name을 그대로 쓰되, level별로 필터
+        def get_sales(mm, name_filter=None):
+            q = af(db.query(DeviceSales.model_name, func.sum(DeviceSales.sale_count)))
+            q = q.filter(DeviceSales.yyyymm==mm, DeviceSales.model_name!="",
+                         DeviceSales.model_name!="nan", DeviceSales.model_name!="ㆍ값없음")
+            if name_filter:
+                q = q.filter(DeviceSales.model_name.like(f"%{name_filter}%"))
+            return {r[0]: int(r[1] or 0) for r in q.group_by(DeviceSales.model_name).all()}
+
+        cur = get_sales(cur_mm, parent)
+        prev_d = get_sales(prev_mm, parent)
+        items = []
+        for nm, cnt in sorted(cur.items(), key=lambda x:-x[1]):
+            pv = prev_d.get(nm, 0)
+            items.append({
+                "name": nm, "cur": cnt, "prev": pv,
+                "mom": round((cnt-pv)/pv*100,1) if pv>0 else None
+            })
+        return {"items": items[:30], "cur_mm": cur_mm, "prev_mm": prev_mm}
+    finally:
+        db.close()
 
 @app.get("/api/ktoa")
 async def get_ktoa():
