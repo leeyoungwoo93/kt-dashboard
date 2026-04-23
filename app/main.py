@@ -95,15 +95,14 @@ def _load_commission(db, contents):
     if buf: db.bulk_save_objects(buf); db.commit()
 
 def _load_device(db, contents):
-    # 구조(skiprows없이): row0=타이틀, row1=빈행, row2=헤더(본부/담당/조직/대표단말/단말모델/별칭/년월...)
-    # row3=서브헤더(판매량/매출), row4~=실데이터
+    import re as _re
     df = pd.read_excel(io.BytesIO(contents), header=None)
     db.query(DeviceSales).delete(); db.commit()
     if df.shape[0] < 5: return
     row2 = [str(v).strip() if pd.notna(v) else "" for v in df.iloc[2].tolist()]
     row3 = [str(v).strip() if pd.notna(v) else "" for v in df.iloc[3].tolist()]
-    # 년월(yyyymm) 컬럼 탐색
-    pairs = []  # (yyyymm, sale_col, rev_col)
+    # 년월/판매량 컬럼 탐색
+    pairs = []
     seen = {}
     for ci, v in enumerate(row2):
         vv = v.replace(",", "")
@@ -111,19 +110,27 @@ def _load_device(db, contents):
             yyyymm = vv
             if yyyymm not in seen:
                 seen[yyyymm] = ci
-                # 같은 yyyymm 범위에서 판매량/매출 컬럼 탐색
                 sale_col, rev_col = None, None
                 for offset in range(0, 5):
                     if ci + offset >= len(row3): break
                     m = row3[ci + offset]
-                    if "판매량" in m and sale_col is None:
-                        sale_col = ci + offset
-                    elif "매출" in m and rev_col is None:
-                        rev_col = ci + offset
+                    if "판매량" in m and sale_col is None: sale_col = ci + offset
+                    elif "매출" in m and rev_col is None: rev_col = ci + offset
                 if sale_col is not None:
                     pairs.append((yyyymm, sale_col, rev_col))
     if not pairs:
         pairs = [("202603", 12, 13), ("202604", 14, 15)]
+
+    def extract_group(alias):
+        """별칭명에서 대표 그룹명 추출 (용량/색상/통신사 제거)"""
+        if not alias or str(alias).strip() in ("ㆍ값없음", "_", "nan", ""):
+            return None
+        a = str(alias).strip()
+        a = _re.sub(r"\s*(128GB|256GB|512GB|1TB|2TB|64GB|32GB|16GB)\s*", " ", a)
+        a = _re.sub(r"\s*(SKT|LGU|KT|자급제|타사향|데모|리퍼|교체|중간시스템|교체단말|리퍼폰)\s*", " ", a)
+        a = _re.sub(r"\s+", " ", a).strip()
+        return a or None
+
     buf = []
     for ri, row in df.iterrows():
         if ri < 4: continue
@@ -132,12 +139,11 @@ def _load_device(db, contents):
         team = str(row.iloc[3]) if pd.notna(row.iloc[3]) else ""
         agency_code = str(row.iloc[4]) if pd.notna(row.iloc[4]) else ""
         agency = str(row.iloc[5]) if pd.notna(row.iloc[5]) else ""
-        rep_model_code = str(row.iloc[6]) if pd.notna(row.iloc[6]) else ""
         alias = str(row.iloc[10]) if pd.notna(row.iloc[10]) else ""
-        model_raw = str(row.iloc[9]) if pd.notna(row.iloc[9]) else ""
-        rep_name = str(row.iloc[7]) if pd.notna(row.iloc[7]) else ""
-        model_name = alias if alias not in ("", "nan", "ㆍ값없음", "_") else                      model_raw if model_raw not in ("", "nan", "ㆍ값없음", "_") else rep_name
-        if model_name in ("", "nan", "ㆍ값없음", "_"): continue
+        model_name = extract_group(alias)
+        if not model_name:
+            continue  # K000000 코드는 스킵
+        rep_model_code = str(row.iloc[6]) if pd.notna(row.iloc[6]) else ""
         for yyyymm, sc_col, rv_col in pairs:
             sc = safe_int(row.iloc[sc_col]) if sc_col < len(row) else 0
             rv = safe_float(row.iloc[rv_col]) if (rv_col is not None and rv_col < len(row)) else 0.0
@@ -150,22 +156,80 @@ def _load_device(db, contents):
             if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
     if buf: db.bulk_save_objects(buf); db.commit()
 def _load_inventory(db, contents):
+    import re as _re
     df = pd.read_excel(io.BytesIO(contents), skiprows=1, header=1)
     db.query(Inventory).delete(); db.commit()
+
+    def extract_group(alias):
+        if not alias or str(alias).strip() in ("ㆍ값없음","_","nan","","None"): return None
+        a = str(alias).strip()
+        a = _re.sub(r"\s*\(Demo\)\s*", " ", a, flags=_re.IGNORECASE)
+        a = _re.sub(r"\s*데모\s*", " ", a)
+        a = _re.sub(r"\s*(128GB|256GB|512GB|1TB|2TB|64GB|32GB|16GB)\s*", " ", a)
+        a = _re.sub(r"\s*(SKT|LGU|KT|자급제|타사향|리퍼|교체|중간시스템)\s*", " ", a)
+        a = _re.sub(r"\s+", " ", a).strip()
+        return a or None
+
+    # 컬럼명 매핑 (실제 파일 구조 기준)
+    # col: 일자, 재고조직레벨2, Unnamed:2(본부명), 재고조직레벨3, 재고조직, Unnamed:5(대리점),
+    #      단말기모델대표단말기모델, Unnamed:7(대표모델코드), 단말기모델, Unnamed:9(세부코드),
+    #      단말기별칭명, 메트릭, 재고량(KT+제조사)
+    alias_col  = "단말기별칭명"
+    bonbu_col  = "Unnamed: 2"
+    qty_col    = "재고량 (KT+제조사)"
+    date_col   = "일자"
+    if alias_col not in df.columns or qty_col not in df.columns:
+        # 폴백: 기존 방식
+        for _, row in df.iterrows():
+            model = str(row.get("단말기모델","")) if pd.notna(row.get("단말기모델")) else ""
+            if model in ("","nan","합계"): continue
+            db.add(Inventory(
+                ref_date=str(row.get("일자",""))[:10], model_name=model,
+                total=safe_int(row.iloc[3]), jisa=safe_int(row.iloc[4]),
+                youngi=safe_int(row.iloc[5]), strategy=safe_int(row.iloc[6]),
+                mns=safe_int(row.iloc[7]), ktshop=safe_int(row.iloc[8]),
+                etc=safe_int(row.iloc[9])
+            ))
+        db.commit(); return
+
+    # 별칭명 기반 단말 그룹 집계
+    ref_date = str(df[date_col].dropna().iloc[0])[:10] if date_col in df.columns and len(df[date_col].dropna()) > 0 else ""
+    df["_group"]  = df[alias_col].apply(extract_group)
+    df["_bonbu"]  = df[bonbu_col] if bonbu_col in df.columns else ""
+    df["_qty"]    = pd.to_numeric(df[qty_col], errors="coerce").fillna(0).astype(int)
+
+    # 전체 집계 (본부 무관)
+    total_agg = df[df["_group"].notna()].groupby("_group")["_qty"].sum().to_dict()
+
+    # MNS(KT M&S) 집계
+    mns_agg = df[(df["_group"].notna()) & (df["재고조직레벨2"]=="MNS0100")].groupby("_group")["_qty"].sum().to_dict()
+
+    # KTShop 집계 - 영업채널본부 계열
+    ktshop_agg = df[(df["_group"].notna()) & (df["재고조직레벨2"]=="540026")].groupby("_group")["_qty"].sum().to_dict()
+
+    # 본부별 집계 (영기/지사 분리)
+    # 지사 = 고객본부 계열 (545784, 545988, 546148, 546314, 546483, 546624, 546729, 546793)
+    jisa_codes = {"545784","545988","546148","546314","546483","546624","546729","546793","413279"}
+    jisa_agg = df[(df["_group"].notna()) & (df["재고조직레벨2"].isin(jisa_codes))].groupby("_group")["_qty"].sum().to_dict()
+
+    # 전략 = 마케팅혁신본부
+    strategy_agg = df[(df["_group"].notna()) & (df["재고조직레벨2"]=="540002")].groupby("_group")["_qty"].sum().to_dict()
+
     buf = []
-    for _, row in df.iterrows():
-        model = str(row.get("단말기모델", "")) if pd.notna(row.get("단말기모델")) else ""
-        if model in ("", "nan", "합계"): continue
+    for model_name, total in total_agg.items():
+        if total <= 0: continue
         buf.append(Inventory(
-            ref_date=str(row.get("일자", ""))[:10], model_name=model,
-            total=safe_int(row.iloc[3]), jisa=safe_int(row.iloc[4]),
-            youngi=safe_int(row.iloc[5]), strategy=safe_int(row.iloc[6]),
-            mns=safe_int(row.iloc[7]), ktshop=safe_int(row.iloc[8]),
-            etc=safe_int(row.iloc[9])
+            ref_date=ref_date, model_name=model_name,
+            total=int(total),
+            jisa=int(jisa_agg.get(model_name, 0)),
+            youngi=0,
+            strategy=int(strategy_agg.get(model_name, 0)),
+            mns=int(mns_agg.get(model_name, 0)),
+            ktshop=int(ktshop_agg.get(model_name, 0)),
+            etc=max(0, int(total) - int(jisa_agg.get(model_name,0)) - int(strategy_agg.get(model_name,0)) - int(mns_agg.get(model_name,0)) - int(ktshop_agg.get(model_name,0)))
         ))
         if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
     if buf: db.bulk_save_objects(buf); db.commit()
-
 def _load_subscriber(db, contents):
     df = pd.read_excel(io.BytesIO(contents), skiprows=2, header=None)
     db.query(Subscriber).delete(); db.commit()
@@ -707,8 +771,8 @@ async def get_summary(
                 .group_by(DeviceSales.model_name).all()}
 
         cur_model=dev_by_mm(cur_mm); prev_model=dev_by_mm(prev_mm)
-        device_cur =sorted([{"name":k,"value":v} for k,v in cur_model.items() if v>0],key=lambda x:-x["value"])[:15]
-        device_prev=sorted([{"name":k,"value":v} for k,v in prev_model.items() if v>0],key=lambda x:-x["value"])[:15]
+        device_cur =sorted([{"name":k,"value":v} for k,v in cur_model.items() if v>0],key=lambda x:-x["value"])[:30]
+        device_prev=sorted([{"name":k,"value":v} for k,v in prev_model.items() if v>0],key=lambda x:-x["value"])[:30]
 
         WORKING_DAYS=21
         inv_data=[]
@@ -716,14 +780,27 @@ async def get_summary(
                           Inventory.youngi,Inventory.strategy,Inventory.mns,Inventory.ktshop).all():
             if not r[0] or r[0] in ("","nan","ㆍ값없음"): continue
             cs=cur_model.get(r[0],0); ps=prev_model.get(r[0],0)
-            da=round(cs/WORKING_DAYS,1) if cs>0 else 0
+            # 일평균: 현월 판매량 기준, 없으면 전월 기준
+            da=round(cs/WORKING_DAYS,1) if cs>0 else (round(ps/WORKING_DAYS,1) if ps>0 else 0)
             dl=round(r[1]/da) if da>0 else None
             mom=round((cs-ps)/ps*100,1) if ps>0 else None
+            # 재고일수 이상값 제거
+            dl=min(dl,999) if dl is not None else None
             inv_data.append({"model":r[0],"inventory":int(r[1]),
                 "jisa":int(r[2]),"youngi":int(r[3]),"strategy":int(r[4]),
                 "mns":int(r[5]),"ktshop":int(r[6]),
                 "cur_sale":cs,"prev_sale":ps,"daily_avg":da,"days_left":dl,"mom":mom})
-        inv_data.sort(key=lambda x:-x["inventory"])
+        # 판매는 있지만 재고 없는 단말도 추가 (재고 소진)
+        inv_models = {d["model"] for d in inv_data}
+        for mn, cs in cur_model.items():
+            if cs > 0 and mn not in inv_models:
+                ps = prev_model.get(mn, 0)
+                mom = round((cs-ps)/ps*100,1) if ps>0 else None
+                da = round(cs/WORKING_DAYS,1)
+                inv_data.append({"model":mn,"inventory":0,
+                    "jisa":0,"youngi":0,"strategy":0,"mns":0,"ktshop":0,
+                    "cur_sale":cs,"prev_sale":ps,"daily_avg":da,"days_left":0,"mom":mom})
+        inv_data.sort(key=lambda x:-(x["cur_sale"]+x["inventory"]))
 
         # 수수료
         comm_by_ag={r[0]:float(r[1] or 0) for r in

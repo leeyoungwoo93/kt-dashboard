@@ -339,10 +339,19 @@ tr:hover td{background:#f0f8f8}
     <span id="ddrBreadcrumb" style="font-size:9px;color:var(--t1)"></span>
   </div>
 </div></div><canvas id="deviceChart"></canvas></div>
-    <div class="card"><div class="ch"><div class="ct">재고 TOP10</div></div><canvas id="invChart"></canvas></div>
+    <div class="card"><div class="ch">
+  <div class="ct">재고 TOP10</div>
+  <div class="cs" id="invKpiText"></div>
+</div><canvas id="invChart"></canvas></div>
   </div>
   <div class="card"><div class="ch"><div class="ct">단말별 판매·재고 연계</div><div class="cs" id="invSubTitle"></div></div>
-    <div class="tw"><table><thead><tr><th>#</th><th>단말명</th><th class="num">현재고</th><th class="num">지사</th><th class="num">영기</th><th class="num">전략</th><th class="num">MNS</th><th class="num">KTShop</th><th class="num" id="colCurSale">당월</th><th class="num" id="colPrevSale">전월</th><th class="pct">MoM%</th><th class="num">일평균</th><th class="num">재고일수</th></tr></thead><tbody id="invTbody"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>#</th><th>단말명</th><th class="num" style="color:var(--t1)">현재고</th>
+      <th class="num">지사</th><th class="num">전략</th><th class="num">MNS</th><th class="num">KTShop</th>
+      <th class="num" id="colCurSale" style="color:var(--t2)">현월판매</th>
+      <th class="num" id="colPrevSale" style="color:var(--muted)">전월판매</th>
+      <th class="pct">MoM%</th><th class="num">일평균</th>
+      <th class="num" id="invSubTitle" style="color:var(--t1);white-space:nowrap">재고일수</th>
+      </tr></thead><tbody id="invTbody"></tbody></table></div>
   </div>
 </div>
 
@@ -461,7 +470,7 @@ tr:hover td{background:#f0f8f8}
   <div style="display:flex;gap:0;margin-bottom:10px;border-bottom:2px solid var(--border)">
     <div class="stab active" id="st0" onclick="switchSubTab(0)">📋 정책 맵</div>
     <div class="stab" id="st1" onclick="switchSubTab(1)">🧮 정책 계산기</div>
-    <div class="stab" id="st2" onclick="switchSubTab(2)">⚔️ 경쟁사 비교</div>
+    <!-- 경쟁사 비교: 탭9 시장정보로 이동 -->
   </div>
 
   <!-- 정책맵 -->
@@ -558,6 +567,11 @@ tr:hover td{background:#f0f8f8}
 
   <!-- 경쟁사 비교 -->
   <div id="sp2" style="display:none">
+    <div style="background:#f0f8f8;border:1px solid var(--t6);border-radius:6px;padding:12px;text-align:center;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:6px">⚔️ 경쟁사 단가 비교</div>
+      <div style="font-size:10px;color:var(--sub);margin-bottom:10px">더 상세한 단가 모니터링은 ⑩ 시장정보 탭에서 확인하세요</div>
+      <button class="calc-btn" onclick="switchTab(9);switchMktTab(0)" style="font-size:11px">⑩ 시장정보 → 단가 모니터링으로 이동</button>
+    </div>
     <div class="comp-f">
       <span style="font-size:11px;font-weight:700;color:var(--t1)">3사 단가 비교</span>
       <select id="compReg" onchange="renderComp()"><option value="수도권">수도권 도매</option><option value="지역">지역 도매</option><option value="전략">전략 채널</option></select>
@@ -693,27 +707,42 @@ tr:hover td{background:#f0f8f8}
     </div>
   </div>
 
-  <!-- 타사 정책변동 패널 -->
+  <!-- 타사 정책변동 패널 - 3분할 -->
   <div id="mktP1" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-size:11px;font-weight:700;color:var(--t1)">📋 타사 정책변동 (도매 모니터링)</div>
+      <div style="font-size:11px;font-weight:700;color:var(--t1)">📋 정책 변동 모니터링 (도매 채널 기준)</div>
       <button class="rst" onclick="addMktPolicy()" style="font-size:9px">+ 변동사항 추가</button>
     </div>
     <!-- 추가 폼 -->
     <div id="mktPolicyForm" style="display:none;background:#f0f8f8;border-radius:6px;padding:10px;margin-bottom:8px">
-      <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:6px;margin-bottom:6px">
+      <div style="display:grid;grid-template-columns:repeat(6,1fr) auto;gap:5px;margin-bottom:6px">
         <input id="mpDate" type="date" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px">
         <select id="mpCo" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px">
-          <option>SKT</option><option>LGU+</option><option>KT</option>
+          <option>KT</option><option>SKT</option><option>LGU+</option>
         </select>
         <input id="mpModel" placeholder="단말 (예: S26)" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px">
         <input id="mpType" placeholder="유형 (MNP/기변/010)" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px">
-        <input id="mpAmount" placeholder="금액 (예: +11만, -5.5만)" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px">
+        <input id="mpAmount" placeholder="금액 (+11만/-5.5만)" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px">
+        <input id="mpSrc" placeholder="출처" style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px" value="도매모니터링">
         <button class="calc-btn" onclick="saveMktPolicy()" style="font-size:9px;padding:3px 8px">저장</button>
       </div>
       <textarea id="mpDetail" placeholder="상세내용 (선택)" rows="2" style="width:100%;font-size:10px;border:1px solid var(--border);border-radius:4px;padding:3px 6px;resize:vertical"></textarea>
     </div>
-    <div id="mktPolicyList"></div>
+    <!-- 3분할: 자사KT / SKT / LGU+ -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div class="card" style="border-top:3px solid var(--t1)">
+        <div class="ch"><div class="ct" style="color:var(--t1)">🟢 KT 정책변동</div></div>
+        <div id="mktPolicyKT" style="max-height:400px;overflow-y:auto"></div>
+      </div>
+      <div class="card" style="border-top:3px solid #c0001a">
+        <div class="ch"><div class="ct" style="color:#c0001a">🔴 SKT 정책변동</div></div>
+        <div id="mktPolicySKT" style="max-height:400px;overflow-y:auto"></div>
+      </div>
+      <div class="card" style="border-top:3px solid #1971c2">
+        <div class="ch"><div class="ct" style="color:#1971c2">🔵 LGU+ 정책변동</div></div>
+        <div id="mktPolicyLGU" style="max-height:400px;overflow-y:auto"></div>
+      </div>
+    </div>
   </div>
 
   <!-- KT 채널별 단가 패널 -->
@@ -1441,36 +1470,52 @@ function renderTab3(d){
 // ─── TAB 4 ───
 function renderTab4(d){
   const cm=d.cur_mm||'',pm=d.prev_mm||'';
-  if(!cm){document.getElementById('devChartTitle').textContent='단말 데이터 없음';return;}
+  if(!cm){document.getElementById('devChartTitle').textContent='단말 데이터 없음 (📱 단말 버튼으로 업로드)';return;}
   document.getElementById('colCurSale').textContent=fmtMM(cm);
   document.getElementById('colPrevSale').textContent=fmtMM(pm);
   document.getElementById('invSubTitle').textContent=`재고일수=현재고÷일평균(${fmtMM(cm)})`;
   const da=d.device_cur||[],dp=d.device_prev||[];
-  if(!da.length){document.getElementById('devChartTitle').textContent='단말 데이터 없음';return;}
-  // 캐시에 저장 후 공용 렌더러 호출
+  if(!da.length){document.getElementById('devChartTitle').textContent='단말 데이터 없음 (📱 단말 버튼으로 업로드)';return;}
   _devData={cur:da,prev:dp,cur_mm:cm,prev_mm:pm};
   _devFilter=null;_devBrand='all';
   document.getElementById('ddrBreadcrumb').textContent='';
   document.getElementById('ddrRoot')?.classList.add('active');
   renderDevChart();
   const inv=d.inv_data||[];
-  if(inv.length)barH('invChart',inv.slice(0,10).map(x=>({n:x.model,v:x.inventory})));
+  if(inv.length){
+    const invByStock=[...inv].filter(x=>x.inventory>0).sort((a,b)=>b.inventory-a.inventory);
+    barH('invChart',invByStock.slice(0,10).map(x=>({n:x.model,v:x.inventory})));
+    // KPI 요약
+    const totalInv=inv.reduce((s,r)=>s+r.inventory,0);
+    const totalSale=inv.reduce((s,r)=>s+r.cur_sale,0);
+    const dangerItems=inv.filter(r=>r.days_left!==null&&r.days_left<7&&r.inventory>0).length;
+    const kpiEl=document.getElementById('invKpiText');
+    if(kpiEl)kpiEl.textContent=`총재고 ${fmt(totalInv)} | 현월판매 ${fmt(totalSale)} | ⚠️ 7일미만 ${dangerItems}종`;
+  }
+  // 재고+판매 통합 테이블 (판매량 기준 정렬)
   document.getElementById('invTbody').innerHTML=inv.map((r,i)=>{
     const mc=r.mom===null?'var(--muted)':r.mom>0?T1:RED;
-    const dc2=r.days_left===null?'var(--muted)':r.days_left<7?RED:r.days_left<14?AMB:T1;
-    return `<tr><td>${i+1}</td>
-      <td style="font-weight:600;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--t1)" title="클릭: 단말 차트 필터" onclick="drillDevItem('${escQ(r.model)}')">${r.model}</td>
-      <td class="num" style="font-weight:700;color:${T1}">${fmt(r.inventory)}</td>
-      <td class="num">${fmt(r.jisa)}</td><td class="num">${fmt(r.youngi)}</td>
-      <td class="num">${fmt(r.strategy)}</td><td class="num">${fmt(r.mns)}</td>
-      <td class="num">${fmt(r.ktshop)}</td>
-      <td class="num">${fmt(r.cur_sale)}</td><td class="num">${fmt(r.prev_sale)}</td>
+    const dl=r.days_left;
+    const dlColor=dl===null?'var(--muted)':dl===0?'#888':dl<7?RED:dl<14?AMB:T1;
+    const dlText=dl===null?'-':dl===0?'재고없음':dl+'일';
+    const isHot=r.cur_sale>0&&r.inventory>0&&dl!==null&&dl<14; // 판매빠른 단말
+    return `<tr style="${isHot?'background:#fff9e6':''}">
+      <td>${i+1}</td>
+      <td style="font-weight:700;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--t1)"
+          title="클릭: 단말 차트 필터" onclick="drillDevItem('${escQ(r.model)}')">${r.model}${isHot?' 🔥':''}</td>
+      <td class="num" style="font-weight:700;color:${r.inventory>0?T1:'var(--muted)'}">${r.inventory>0?fmt(r.inventory):'-'}</td>
+      <td class="num">${fmt(r.jisa)}</td>
+      <td class="num">${r.strategy>0?fmt(r.strategy):'-'}</td>
+      <td class="num">${r.mns>0?fmt(r.mns):'-'}</td>
+      <td class="num">${r.ktshop>0?fmt(r.ktshop):'-'}</td>
+      <td class="num" style="font-weight:700;color:${T2}">${r.cur_sale>0?fmt(r.cur_sale):'-'}</td>
+      <td class="num" style="color:var(--muted)">${r.prev_sale>0?fmt(r.prev_sale):'-'}</td>
       <td class="pct" style="color:${mc}">${r.mom!==null?(r.mom>0?'+':'')+r.mom+'%':'-'}</td>
-      <td class="num">${r.daily_avg||'-'}</td>
-      <td class="num" style="color:${dc2};font-weight:700">${r.days_left!==null?r.days_left+'일':'-'}</td></tr>`;
+      <td class="num">${r.daily_avg>0?r.daily_avg:'-'}</td>
+      <td class="num" style="color:${dlColor};font-weight:700">${dlText}</td>
+    </tr>`;
   }).join('');
 }
-
 
 // ─── 단말 드릴다운 헬퍼 ───
 let _devFilter = null; // 현재 드릴다운 필터 (null=전체)
@@ -1505,10 +1550,10 @@ function renderDevChart(){
   const dp=_devData.prev||[];
   const marMap=Object.fromEntries(dp.map(x=>[x.name,x.value]));
 
-  if(_devFilter) da=da.filter(x=>x.name.toUpperCase().includes(_devFilter.toUpperCase()));
-  if(_devBrand==='samsung') da=da.filter(x=>x.name.toUpperCase().includes('SM-')||x.name.includes('갤럭시')||x.name.includes('Galaxy'));
-  if(_devBrand==='apple') da=da.filter(x=>x.name.includes('AIP')||x.name.includes('iPhone')||x.name.includes('아이폰'));
-  da=da.slice(0,15);
+  if(_devFilter) da=da.filter(x=>x.name.includes(_devFilter)||x.name.toUpperCase().includes(_devFilter.toUpperCase()));
+  if(_devBrand==='samsung') da=da.filter(x=>x.name.includes('갤럭시')||x.name.includes('Galaxy')||x.name.includes('폼폼')||x.name.includes('시나모')||x.name.includes('맘편'));
+  if(_devBrand==='apple') da=da.filter(x=>x.name.includes('iPhone')||x.name.includes('아이폰'));
+  da=da.slice(0,20);  // TOP20으로 확장
 
   const cm=_devData.cur_mm||'', pm=_devData.prev_mm||'';
   document.getElementById('devChartTitle').textContent=`단말 판매 TOP15 (${fmtMM(cm)})${_devFilter?' — '+_devFilter:''}`;
@@ -1992,7 +2037,7 @@ function openPolicy(section,id){
   html+=`<div class="m-sec"><h4>🔗 관련 분석</h4><div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="rst" onclick="closeModal();switchTab(5)">⑥ 수수료 내역</button>
     <button class="rst" onclick="closeModal();switchTab(7);switchSubTab(1)">🧮 정책 계산기</button>
-    <button class="rst" onclick="closeModal();switchTab(7);switchSubTab(2)">⚔️ 경쟁사 비교</button>
+    <button class="rst" onclick="closeModal();switchTab(9);switchMktTab(0)">📊 시장정보/단가비교</button>
   </div></div>`;
   document.getElementById('mContent').innerHTML=html;
   document.getElementById('pModal').classList.add('open');
@@ -2303,6 +2348,12 @@ const MKT_POLICY_INIT=[
   {id:10,date:'2026-04-18',co:'LGU+',model:'iPhone17류',type:'MNP',amount:'-5.5만',detail:'19시자로 고가 iPhone17류 MNP 5.5만 축소',src:'도매모니터링'},
   {id:11,date:'2026-04-15',co:'SKT',model:'전단말',type:'010/MNP',amount:'도매정책7호',detail:'S26군 기변 조정. 중저가 4종 선약 MNP 5만 추가 (퀀텀6,와이드8,A17)',src:'도매정책서7호'},
   {id:12,date:'2026-04-14',co:'LGU+',model:'버디5.5/iPhone17류',type:'MNP',amount:'+5.5만',detail:'14:30 시장대응. 고가 MNP 추가',src:'도매모니터링'},
+  // KT 정책변동
+  {id:20,date:'2026-04-23',co:'KT',model:'S26/S26+/Ultra',type:'MNP/기변',amount:'+10~13만',detail:'MRA-02 업데이트. S26 MNP 100→140만, 도매/온라인 MWA-03 S26 140→190만',src:'KT정책'},
+  {id:21,date:'2026-04-23',co:'KT',model:'S25FE/Fold7/iPhone17',type:'기변',amount:'-5~10만/-3만',detail:'MRA-04 활력정책. S25FE/Fold7 기변 5~10만 축소, iPhone17 기변선약 3만 축소',src:'KT정책'},
+  {id:22,date:'2026-04-21',co:'KT',model:'전단말',type:'010',amount:'-5만',detail:'소매정책서 6호. 전단말 선약 세이브 기준 010 5만원 축소',src:'소매정책서6호'},
+  {id:23,date:'2026-04-21',co:'KT',model:'S26/iPhone17/S25FE/Fold7',type:'기변',amount:'축소',detail:'소매정책서 6호 기변 축소. 중고MNP도 5만원 축소',src:'소매정책서6호'},
+  {id:24,date:'2026-04-20',co:'KT',model:'S26류',type:'기변',amount:'익일축소예고',detail:'MRA-04. S26류 기변 익일 축소 예정. 이월건 없도록 당일 개통 요청',src:'도매모니터링'},
 ];
 
 function getMktPolicies(){
@@ -2427,8 +2478,9 @@ function saveMktPolicy(){
   const type=document.getElementById('mpType').value.trim();
   const amount=document.getElementById('mpAmount').value.trim();
   const detail=document.getElementById('mpDetail').value.trim();
+  const src=document.getElementById('mpSrc')?.value?.trim()||'직접입력';
   if(!model||!amount)return;
-  const newP={id:Date.now(),date,co,model,type,amount,detail,src:'직접입력'};
+  const newP={id:Date.now(),date,co,model,type,amount,detail,src};
   _mktPolicies.unshift(newP);
   try{localStorage.setItem('kt_mkt_policies',JSON.stringify(_mktPolicies.slice(0,200)));}catch(e){}
   document.getElementById('mktPolicyForm').style.display='none';
@@ -2442,33 +2494,33 @@ function deleteMktPolicy(id){
   renderMktPolicies();
 }
 
+function renderPolicyTable(policies, color){
+  if(!policies.length)return '<div style="color:var(--muted);padding:10px;font-size:9px">변동사항 없음</div>';
+  return `<table style="width:100%;border-collapse:collapse;font-size:10px">
+    <tbody>${policies.map(p=>`<tr style="border-bottom:1px solid var(--bg)">
+      <td style="padding:3px 5px;color:var(--muted);white-space:nowrap;font-size:9px">${p.date?.slice(5)||p.date}</td>
+      <td style="padding:3px 5px;font-weight:700;color:${color}">${p.model}</td>
+      <td style="padding:3px 5px;font-size:9px;color:var(--muted)">${p.type}</td>
+      <td style="padding:3px 5px;font-weight:700;color:${p.amount?.startsWith('+')?T1:p.amount?.startsWith('-')?RED:'inherit'}">${p.amount}</td>
+      <td style="padding:3px 5px;font-size:8px;color:var(--sub);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.detail}">${p.detail}</td>
+      <td style="padding:3px 5px">${p.id>1000?`<span onclick="deleteMktPolicy(${p.id})" style="cursor:pointer;color:var(--muted)">✕</span>`:''}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
 function renderMktPolicies(){
   const all=getMktPolicies();
-  const coColor={KT:T1,SKT:RED,'LGU+':BLU};
-  document.getElementById('mktPolicyList').innerHTML=`
-    <div style="font-size:9px;color:var(--muted);margin-bottom:6px">총 ${all.length}건 | 직접입력 ${_mktPolicies.filter(p=>p.id>1000).length}건</div>
-    <table style="width:100%;border-collapse:collapse;font-size:10px">
-      <thead><tr style="background:#f0f8f8">
-        <th style="padding:4px 8px;text-align:left;font-size:8px">날짜</th>
-        <th style="padding:4px 8px;text-align:center;font-size:8px">사업자</th>
-        <th style="padding:4px 8px;text-align:left;font-size:8px">단말</th>
-        <th style="padding:4px 8px;text-align:center;font-size:8px">유형</th>
-        <th style="padding:4px 8px;text-align:center;font-size:8px">금액</th>
-        <th style="padding:4px 8px;text-align:left;font-size:8px">내용</th>
-        <th style="padding:4px 8px;text-align:center;font-size:8px">출처</th>
-        <th></th>
-      </tr></thead>
-      <tbody>${all.map(p=>`<tr style="border-bottom:1px solid var(--bg)">
-        <td style="padding:4px 6px;color:var(--muted);white-space:nowrap">${p.date?.slice(5)||p.date}</td>
-        <td style="padding:4px 6px;text-align:center"><span style="background:${(coColor[p.co]||'#888')+'22'};color:${coColor[p.co]||'#888'};border-radius:3px;padding:1px 5px;font-size:8px;font-weight:700">${p.co}</span></td>
-        <td style="padding:4px 6px;font-weight:700;color:${T1}">${p.model}</td>
-        <td style="padding:4px 6px;text-align:center;font-size:9px">${p.type}</td>
-        <td style="padding:4px 6px;text-align:center;font-weight:700;color:${p.amount.startsWith('+')?T1:p.amount.startsWith('-')?RED:'inherit'}">${p.amount}</td>
-        <td style="padding:4px 6px;font-size:9px;color:var(--sub);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.detail}">${p.detail}</td>
-        <td style="padding:4px 6px;font-size:8px;color:var(--muted);text-align:center">${p.src}</td>
-        <td style="padding:4px 6px">${p.id>1000?`<span onclick="deleteMktPolicy(${p.id})" style="cursor:pointer;color:var(--muted);font-size:10px">✕</span>`:''}</td>
-      </tr>`).join('')}</tbody>
-    </table>`;
+  const kt=all.filter(p=>p.co==='KT');
+  const skt=all.filter(p=>p.co==='SKT');
+  const lgu=all.filter(p=>p.co==='LGU+'||p.co==='LGU');
+  
+  const ktEl=document.getElementById('mktPolicyKT');
+  const sktEl=document.getElementById('mktPolicySKT');
+  const lguEl=document.getElementById('mktPolicyLGU');
+  
+  if(ktEl)ktEl.innerHTML=`<div style="font-size:8px;color:var(--muted);padding:3px 5px">${kt.length}건</div>`+renderPolicyTable(kt,T1);
+  if(sktEl)sktEl.innerHTML=`<div style="font-size:8px;color:var(--muted);padding:3px 5px">${skt.length}건</div>`+renderPolicyTable(skt,RED);
+  if(lguEl)lguEl.innerHTML=`<div style="font-size:8px;color:var(--muted);padding:3px 5px">${lgu.length}건</div>`+renderPolicyTable(lgu,BLU);
 }
 
 function renderMktKtTable(){
@@ -2489,7 +2541,7 @@ function renderTab9(){
 }
 
 // ─── 업데이트 알림 시스템 ───
-const DASHBOARD_VERSION='2026-04-23-v4';
+const DASHBOARD_VERSION='2026-04-23-v5';
 const UPDATE_LOG=[
   {version:'2026-04-23-v3',date:'2026-04-23',changes:[
     '✅ ⑨ 가입자분석 탭 신설 (유지가입자 변동·추이·구분별 분석)',
