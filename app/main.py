@@ -95,46 +95,60 @@ def _load_commission(db, contents):
     if buf: db.bulk_save_objects(buf); db.commit()
 
 def _load_device(db, contents):
-    df = pd.read_excel(io.BytesIO(contents), skiprows=2, header=None)
+    # 구조(skiprows없이): row0=타이틀, row1=빈행, row2=헤더(본부/담당/조직/대표단말/단말모델/별칭/년월...)
+    # row3=서브헤더(판매량/매출), row4~=실데이터
+    df = pd.read_excel(io.BytesIO(contents), header=None)
     db.query(DeviceSales).delete(); db.commit()
-    if df.shape[0] < 2: return
-    meta = df.iloc[1]
-    pairs = []
-    i = 0
-    while i < len(meta):
-        val = str(meta.iloc[i]) if pd.notna(meta.iloc[i]) else ""
-        if val.isdigit() and len(val) == 6:
-            next_val = str(meta.iloc[i+1]) if i+1 < len(meta) and pd.notna(meta.iloc[i+1]) else ""
-            if next_val == val:
-                pairs.append((val, i, i+1)); i += 2
-            else:
-                pairs.append((val, i, None)); i += 1
-        else:
-            i += 1
+    if df.shape[0] < 5: return
+    row2 = [str(v).strip() if pd.notna(v) else "" for v in df.iloc[2].tolist()]
+    row3 = [str(v).strip() if pd.notna(v) else "" for v in df.iloc[3].tolist()]
+    # 년월(yyyymm) 컬럼 탐색
+    pairs = []  # (yyyymm, sale_col, rev_col)
+    seen = {}
+    for ci, v in enumerate(row2):
+        vv = v.replace(",", "")
+        if vv.isdigit() and len(vv) == 6:
+            yyyymm = vv
+            if yyyymm not in seen:
+                seen[yyyymm] = ci
+                # 같은 yyyymm 범위에서 판매량/매출 컬럼 탐색
+                sale_col, rev_col = None, None
+                for offset in range(0, 5):
+                    if ci + offset >= len(row3): break
+                    m = row3[ci + offset]
+                    if "판매량" in m and sale_col is None:
+                        sale_col = ci + offset
+                    elif "매출" in m and rev_col is None:
+                        rev_col = ci + offset
+                if sale_col is not None:
+                    pairs.append((yyyymm, sale_col, rev_col))
     if not pairs:
-        pairs = [("202604", 9, 10), ("202603", 11, 12)]
+        pairs = [("202603", 12, 13), ("202604", 14, 15)]
     buf = []
     for ri, row in df.iterrows():
-        if ri <= 1: continue
-        val_bonbu = str(row.iloc[1]) if pd.notna(row.iloc[1]) else ""
-        if val_bonbu in ("", "nan") or val_bonbu.lstrip("-").isdigit(): continue
-        model_name = str(row.iloc[7]) if pd.notna(row.iloc[7]) else ""
-        if model_name in ("", "nan", "ㆍ값없음"):
-            model_name = str(row.iloc[6]) if pd.notna(row.iloc[6]) else ""
-        if model_name in ("", "nan", "ㆍ값없음"): continue
-        for yyyymm, cs, cr in pairs:
-            sc = safe_int(row.iloc[cs]) if cs < len(row) else 0
-            rv = safe_float(row.iloc[cr]) if (cr is not None and cr < len(row)) else 0.0
+        if ri < 4: continue
+        bonbu = str(row.iloc[1]) if pd.notna(row.iloc[1]) else ""
+        if bonbu in ("", "nan") or bonbu.lstrip("-").isdigit(): continue
+        team = str(row.iloc[3]) if pd.notna(row.iloc[3]) else ""
+        agency_code = str(row.iloc[4]) if pd.notna(row.iloc[4]) else ""
+        agency = str(row.iloc[5]) if pd.notna(row.iloc[5]) else ""
+        rep_model_code = str(row.iloc[6]) if pd.notna(row.iloc[6]) else ""
+        alias = str(row.iloc[10]) if pd.notna(row.iloc[10]) else ""
+        model_raw = str(row.iloc[9]) if pd.notna(row.iloc[9]) else ""
+        rep_name = str(row.iloc[7]) if pd.notna(row.iloc[7]) else ""
+        model_name = alias if alias not in ("", "nan", "ㆍ값없음", "_") else                      model_raw if model_raw not in ("", "nan", "ㆍ값없음", "_") else rep_name
+        if model_name in ("", "nan", "ㆍ값없음", "_"): continue
+        for yyyymm, sc_col, rv_col in pairs:
+            sc = safe_int(row.iloc[sc_col]) if sc_col < len(row) else 0
+            rv = safe_float(row.iloc[rv_col]) if (rv_col is not None and rv_col < len(row)) else 0.0
+            if sc == 0 and rv == 0.0: continue
             buf.append(DeviceSales(
-                bonbu=val_bonbu, team=str(row.iloc[3]) if pd.notna(row.iloc[3]) else "",
-                agency_code=str(row.iloc[4]) if pd.notna(row.iloc[4]) else "",
-                agency=str(row.iloc[5]) if pd.notna(row.iloc[5]) else "",
-                model_code=str(row.iloc[6]) if pd.notna(row.iloc[6]) else "",
-                model_name=model_name, yyyymm=yyyymm, sale_count=sc, revenue=rv,
+                bonbu=bonbu, team=team, agency_code=agency_code, agency=agency,
+                model_code=rep_model_code, model_name=model_name,
+                yyyymm=yyyymm, sale_count=sc, revenue=rv,
             ))
             if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
     if buf: db.bulk_save_objects(buf); db.commit()
-
 def _load_inventory(db, contents):
     df = pd.read_excel(io.BytesIO(contents), skiprows=1, header=1)
     db.query(Inventory).delete(); db.commit()
@@ -285,17 +299,23 @@ def _load_ktoa(contents):
         lgu_from_kt = g(fc("LGU+", "KT"))
         mv_from_kt  = g(fc("MVNO", "KT"))
 
-        # SKT 순증: SKT유입(KT_SKT+LGU+_SKT) - SKT이탈(SKT_KT+SKT_LGU+)
-        skt_in  = skt_from_kt + g(fc("SKT", "LGU"))
-        skt_out = kt_from_skt + g(fc("LGU+", "SKT"))
+        # SKT 순증: (타사→SKT 유입) - (SKT→타사 이탈)
+        # fc("KT","SKT")=KT→SKT=SKT유입, fc("LGU+","SKT")=LGU→SKT=SKT유입
+        # fc("SKT","KT")=SKT→KT=SKT이탈, fc("SKT","LGU")=SKT→LGU=SKT이탈
+        skt_in  = kt_from_skt + g(fc("LGU+", "SKT"))   # 타사→SKT
+        skt_out = skt_from_kt + g(fc("SKT", "LGU"))     # SKT→타사
 
-        # LGU+ 순증
-        lgu_in  = lgu_from_kt + g(fc("LGU+", "SKT"))
-        lgu_out = kt_from_lgu + g(fc("SKT", "LGU"))
+        # LGU+ 순증: (타사→LGU 유입) - (LGU→타사 이탈)
+        lgu_in  = kt_from_lgu + g(fc("SKT", "LGU"))    # 타사→LGU
+        lgu_out = lgu_from_kt + g(fc("LGU+", "SKT"))   # LGU→타사
 
-        kt_mno_in  = kt_from_skt + kt_from_lgu
-        kt_mno_out = skt_from_kt + lgu_from_kt
-        kt_mno_net = kt_mno_in - kt_mno_out
+        # 순증 = 이탈(KT→타사) - 유입(타사→KT)
+        # 이탈: fc("KT","SKT")=KT→SKT, fc("KT","LGU")=KT→LGU
+        # 유입: fc("SKT","KT")=SKT→KT, fc("LGU","KT")=LGU→KT
+        # 검증(4/22): (1240+729)-(1251+726)=-8 ✓
+        kt_mno_in  = skt_from_kt + lgu_from_kt   # 타사→KT (유입)
+        kt_mno_out = kt_from_skt + kt_from_lgu   # KT→타사 (이탈)
+        kt_mno_net = kt_mno_in - kt_mno_out       # 순증 = 유입-이탈
 
         kt_all_in  = kt_from_skt + kt_from_lgu + kt_from_mv
         kt_all_out = skt_from_kt + lgu_from_kt + mv_from_kt
@@ -542,7 +562,7 @@ async def get_summary(
         kids_data = to_list(af(db.query(Sales.kids,func.sum(Sales.sale_count)))
             .filter(Sales.kids!="",Sales.kids!="nan").group_by(Sales.kids).all())
         k110_data = to_list(af(db.query(Sales.k110,func.sum(Sales.sale_count)))
-            .filter(Sales.k110!="",Sales.k110!="nan").group_by(Sales.k110).all())
+            .filter(Sales.k110.in_(["초이스","초이스外"])).group_by(Sales.k110).all())
         foreigner_data = to_list(af(db.query(Sales.foreigner,func.sum(Sales.sale_count)))
             .filter(Sales.foreigner!="",Sales.foreigner!="nan").group_by(Sales.foreigner).all())
 
@@ -565,7 +585,7 @@ async def get_summary(
             used_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.sale_type.like("%중고%")).scalar() or 0)
             kids_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.kids=="키즈").scalar() or 0)
             foreign_cnt = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.foreigner=="외국인").scalar() or 0)
-            k110_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.k110=="이상").scalar() or 0)
+            k110_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.k110=="초이스").scalar() or 0)
             bonbu_detail.append({
                 "name":nm,"sale":sale,"sub":sub,
                 "new_sub":new_s,"mnp":int(r[4] or 0),
@@ -631,6 +651,28 @@ async def get_summary(
         for a in all_agency:
             cumsum+=a["value"]; pareto_count+=1
             if totals["sale"]>0 and cumsum>=totals["sale"]*0.8: break
+
+
+        # 담당·지사별 상세 (초이스 비중 포함)
+        team_detail = []
+        for r in af(db.query(
+            Sales.team, func.sum(Sales.sale_count), func.sum(Sales.subscriber),
+            func.sum(Sales.new_sub), func.sum(Sales.mnp),
+            func.sum(Sales.mmnp), func.sum(Sales.vmnp),
+            func.sum(Sales.churn), func.sum(Sales.premium_change),
+            func.sum(Sales.revenue),
+        )).filter(Sales.team!="",Sales.team!="nan").group_by(Sales.team)          .order_by(func.sum(Sales.sale_count).desc()).all():
+            nm=r[0]; sale=int(r[1] or 0); sub=int(r[2] or 0); rev=float(r[9] or 0)
+            new_s=int(r[3] or 0); churn_s=int(r[7] or 0)
+            choice_cnt = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.team==nm,Sales.k110=="초이스").scalar() or 0)
+            team_detail.append({
+                "name":nm,"sale":sale,"sub":sub,
+                "new_sub":new_s,"mnp":int(r[4] or 0),
+                "mmnp":int(r[5] or 0),"vmnp":int(r[6] or 0),
+                "churn":churn_s,"premium":int(r[8] or 0),
+                "revenue":rev,"arpu":round(rev/sub) if sub>0 else 0,
+                "net":new_s-churn_s,"choice_cnt":choice_cnt,
+            })
 
         mnp_detail={"smnp":totals["smnp"],"lmnp":totals["lmnp"],
             "mmnp_in":totals["mmnp"],"vmnp":totals["vmnp"],
@@ -727,7 +769,7 @@ async def get_summary(
             "bonbu":bonbu_data,"team":team_data,"channel":channel_data,
             "sale_type":type_data,"kids":kids_data,"k110":k110_data,"foreigner":foreigner_data,
             "bonbu_detail":bonbu_detail,"channel_detail":channel_detail,
-            "agency_detail":agency_detail,"mnp_detail":mnp_detail,
+            "agency_detail":agency_detail,"mnp_detail":mnp_detail,"team_detail":team_detail,
             "pareto_80_count":pareto_count,"agency_total_count":len(all_agency),
             "latest_sub_date":latest_date,
             "device_cur":device_cur,"device_prev":device_prev,
@@ -758,11 +800,77 @@ async def get_commission(
             .group_by(Commission.commission_policy_name,Commission.commission_policy,
                       Commission.channel_type,Commission.item_code,Commission.agency_name)\
             .order_by(func.sum(Commission.amount).desc()).limit(50).all()
-        items=[{"policy_name":r[0],"policy_code":r[1],"channel":r[2],"item":r[3],"agency":r[4],"amount":float(r[5] or 0)} for r in rows]
+        items=[]
+        for r in rows:
+            cls=classify_commission_policy(r[0],r[3])
+            items.append({"policy_name":r[0],"policy_code":r[1],"channel":r[2],"item":r[3],
+                          "agency":r[4],"amount":float(r[5] or 0),
+                          "series":cls["series"],"channel_cls":cls["channel_cls"],
+                          "policy_type":cls["policy_type"],"item_type":cls["item_type"]})
         total=float(db.query(func.sum(Commission.amount)).filter(Commission.amount>0).scalar() or 0)
         return {"items":items,"total":total}
     finally: db.close()
 
+
+# ── Commission 실무분류 함수 ─────────────────────────────────────
+import re as _re
+
+def classify_commission_policy(policy_name: str, item_code: str) -> dict:
+    """
+    정책명에서 MRA/MWA/MBA 코드 파싱 → 실무 분류
+    MRA = 소매(Retail Agency)
+    MWA = 도매/온라인(Wholesale Agency)
+    MBA = 공통기본(Basic common)
+    MPA = 판매촉진(Promotion)
+    MRN = 지역특별(Regional)
+    코드번호: 00=인프라, 01=기본정책, 02=돈버는모델/매출성장, 03=STORAGE/2ndDevice,
+              04=활력/시장대응, 05=장기고객, 06~=기타
+    """
+    nm = policy_name or ""
+    # 코드 추출
+    m = _re.search(r'(MRA|MWA|MBA|MPA|MRN|MZC)-(\d{2})', nm)
+    series = m.group(1) if m else None
+    num = int(m.group(2)) if m else None
+    # 채널 분류
+    if series in ("MRA",):
+        channel_cls = "소매"
+    elif series in ("MWA",):
+        channel_cls = "도매/온라인"
+    elif series in ("MBA", "MZC"):
+        channel_cls = "공통"
+    elif series in ("MPA", "MRN"):
+        channel_cls = "특별/촉진"
+    else:
+        channel_cls = "기타"
+    # 정책 유형 분류
+    if num is None:
+        policy_type = "기타"
+    elif num == 0:
+        policy_type = "인프라(기본수수료)"
+    elif num == 1:
+        policy_type = "기본정책"
+    elif num == 2:
+        policy_type = "매출성장(돈버는모델)"
+    elif num == 3:
+        policy_type = "STORAGE/2nd Device"
+    elif num == 4:
+        policy_type = "활력/시장대응"
+    elif num == 5:
+        policy_type = "장기고객(기변)"
+    elif num == 6:
+        policy_type = "부가서비스활성화"
+    elif num == 7:
+        policy_type = "Pre-Sales/신모델"
+    elif num == 8:
+        policy_type = "신모델 SCM"
+    elif num == 9:
+        policy_type = "목표달성/시상"
+    else:
+        policy_type = f"기타({num:02d})"
+    # 항목유형
+    item_type = {"F300":"활성화","F420":"유지","F432":"부가서비스"}.get(item_code, item_code or "기타")
+    return {"series": series or "기타", "channel_cls": channel_cls,
+            "policy_type": policy_type, "item_type": item_type}
 
 # ── Subscriber Analysis ───────────────────────────────────────────
 @app.get("/api/subscriber")
