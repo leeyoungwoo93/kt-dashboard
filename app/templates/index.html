@@ -1157,7 +1157,18 @@ async function loadData(){
   selTeam.forEach(t=>p.append('team_list',t));
   selCh.forEach(c=>p.append('channel_list',c));
   if(curAgency)p.append('agency',curAgency);
-  D=await(await fetch('/api/summary?'+p)).json();
+  try{
+    const resp=await fetch('/api/summary?'+p);
+    if(!resp.ok)throw new Error('API '+resp.status);
+    D=await resp.json();
+    if(!D||!D.totals)throw new Error('데이터 형식 오류');
+  }catch(e){
+    console.error('[loadData 오류]',e);
+    document.getElementById('filterTag').textContent='⚠️ 데이터 로딩 실패: '+e.message;
+    document.getElementById('filterTag').style.display='inline-block';
+    document.getElementById('filterTag').style.background='#c0001a';
+    return;
+  }
   const n=selBonbu.size+selTeam.size+selCh.size+(curAgency?1:0);
   const tag=document.getElementById('filterTag');
   const parts=[];
@@ -1193,6 +1204,7 @@ function renderTab(i){
 
 // _mainChartView: 최상단 선언됨
 function renderMainChart(d){
+  if(!d)return;
   const bd=d.bonbu_detail||[];
   const labels=bd.map(b=>b.name);
   const goals=bd.map(b=>_goals[b.name]||0);
@@ -1352,7 +1364,8 @@ function setMainChartView(v){
 
 
 function renderTab0(d){
-  const t=d.totals,g=d.grand_totals,net=t.new_sub-t.churn;
+  if(!d||!d.totals){console.error('renderTab0: 데이터 없음',d);return;}
+  const t=d.totals,g=d.grand_totals||d.totals,net=(t.new_sub||0)-(t.churn||0);
   const sale=t.sale||1;
   kpiRow('kpiRow0',[
     {label:'총 판매량',val:fmt(t.sale),sub:t.sale!==g.sale?`필터 ${pct(t.sale,g.sale)}`:'전체기간'},
@@ -1427,6 +1440,7 @@ function renderTab0(d){
 
 // ─── TAB 1 ───
 function renderTab1(d){
+  if(!d||!d.totals){console.error('renderTab1: 데이터 없음');return;}
   const t=d.totals;
   kpiRow('kpiRow1',[
     {label:'총판매',val:fmt(t.sale)},{label:'신규',val:fmt(t.new_sub),sub:pct(t.new_sub,t.sale)},
@@ -1489,6 +1503,7 @@ function renderTab1(d){
 
 // ─── TAB 2 ───
 function renderTab2(d){
+  if(!d||!d.totals){console.error('renderTab2: 데이터 없음');return;}
   const t=d.totals,net=t.new_sub-t.churn;
   kpiRow('kpiRow2',[
     {label:'신규가입',val:fmt(t.new_sub)},
@@ -1551,6 +1566,7 @@ function setChGroup(g){
 
 // ─── TAB 3 ───
 function renderTab3(d){
+  if(!d||!d.totals){console.error('renderTab3: 데이터 없음');return;}
   _chGroupData=d; // 캐시 저장
   const allCd=d.channel_detail||[];if(!allCd.length)return;
   // 중분류 필터 적용
@@ -1644,6 +1660,7 @@ function renderTab3(d){
 
 // ─── TAB 4 ───
 function renderTab4(d){
+  if(!d||!d.totals){console.error('renderTab4: 데이터 없음');return;}
   const cm=d.cur_mm||'',pm=d.prev_mm||'';
   if(!cm){document.getElementById('devChartTitle').textContent='단말 데이터 없음 (📱 단말 버튼으로 업로드)';return;}
   document.getElementById('colCurSale').textContent=fmtMM(cm);
@@ -1968,6 +1985,7 @@ async function loadCommission(){
 }
 
 function renderTab5(d){
+  if(!d||!d.totals){console.error('renderTab5: 데이터 없음');return;}
   const tc=d.comm_total||0;
   kpiRow('kpiRow5',[
     {label:'총 수수료',val:(tc/1e8).toFixed(1)+'억',sub:'원'},
@@ -2489,6 +2507,7 @@ function renderComp(){
 const MIN_SUB_BONBU=5000; // 이 이하 조직은 기타로 묶음
 
 async function renderTab8(d){
+  if(!d||!d.totals){console.error('renderTab8: 데이터 없음');return;}
   const p=new URLSearchParams();
   selBonbu.forEach(b=>p.append('bonbu_list',b));
   selTeam.forEach(t=>p.append('team_list',t));
@@ -2975,7 +2994,14 @@ function dismissUpdate(){
 }
 
 async function init(){
-  const f=await(await fetch('/api/filters')).json();
+  let f;
+  try{
+    const resp=await fetch('/api/filters');
+    f=await resp.json();
+  }catch(e){
+    console.error('[init 오류]',e);
+    f={bonbu_list:[],team_list:[],agency_list:[],channel_list:[],policy_list:[]};
+  }
   buildDD('listBonbu',f.bonbu_list,selBonbu,'toggleBonbu',null);
   buildDD('listTeam',f.team_list,selTeam,'toggleTeam',null);
   buildDD('listCh',f.channel_list,selCh,'toggleCh',shortCh);
