@@ -819,6 +819,23 @@ tr:hover td{background:#f0f8f8}
 </div>
 
 <script>
+// ═══ 전역 상태 변수 (최상단 선언) ═══════════════════════════
+let _mainChartView='sale';
+let _devGroupMode=null;
+let _devFilter=null;
+let _devData=null;
+let _chGroupData=null;
+let _mktReg='수도권',_mktType='공통',_mktSub='MNP',_mktTab=0;
+// _mktPolicies: 최상단 선언됨
+let _goals={};
+try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
+// _policyMemos: 최상단 선언됨
+// let D=null,KTOA=null,currentTab=0,drillL... → 최상단 선언됨
+
+// // charts: 최상단 선언됨... → 최상단 선언됨
+// ════════════════════════════════════════════════════════════
+
+
 Chart.register(ChartDataLabels);
 const T1='#006464',T2='#008080',T3='#009999',T4='#00b3b3',T5='#33d6d6',T6='#66e0e0';
 const RED='#c0001a',AMB='#e67700',BLU='#1971c2',GRN='#2e7d32',PRP='#6741d9';
@@ -833,9 +850,9 @@ const escQ=s=>s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;')
 const CH_SHORT={'1-1. 소매_매장':'소·매장','1-2. 소매_플라자':'소·플라자','1-3. 소매_대형마트':'소·대형마트','2-1. 도매':'도매','3-1. 비대면_직접(KT샵)':'비·KT샵','3-2. 비대면_직접(고객센터)':'비·고객센터','4-1. 비대면_간접(온라인_일반)':'비·일반온','4-2. 비대면_간접(온라인_매집)':'비·특수온','4-3. 비대면_간접(온라인_사외)':'비·사외온','4-4. 비대면_간접(유선_도매)':'비·유선도매','5-1. 대형유통_B2C':'대형B2C','5-2. 대형유통_B2B':'대형B2B','6-1. 방문판매_유선대리점':'방·유선','6-2. 방문판매_가판':'방·가판','6-3. 방문판매_KT서비스':'방·KTS','6-4. 방문판매_프론티어/MOT':'방·프론티어','6-5. 방문판매_KT프로':'방·KT프로','6-6. 방문판매_기타(토탈)':'방·토탈','7-1. 기업_기업마부':'기·기업마부','7-2. 기업_기업외 전략':'기·기업외','7-3. 기업_고객본부(버티컬)':'기·버티컬','8-1. 기타':'기타','8-2. 외국인여권':'외국인여권'};
 const shortCh=raw=>CH_SHORT[raw]||raw;
 
-let charts={},D=null,KTOA=null,agList=[],curAgency='';
-let selBonbu=new Set(),selTeam=new Set(),selCh=new Set(),selPolicy=new Set();
-let drillLevel='bonbu',currentTab=0,currentSubTab=0;
+// charts, D, KTOA 등: 최상단 선언됨
+
+// drillLevel 등: 최상단 선언됨
 
 // ─── Chart utils ───
 function dc(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
@@ -1054,23 +1071,19 @@ async function updateDrillCharts(){
         data:{labels:items.map(x=>x.name),datasets:[
           {label:'010신규',data:items.map(x=>x.new_sub||0),backgroundColor:T2+'dd',stack:'s',borderRadius:0,
             datalabels:{display:true,color:'#fff',font:{size:6,weight:'bold'},
-              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`0 ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`0:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
               ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
           {label:'M.MNP',data:items.map(x=>x.mmnp||0),backgroundColor:BLU+'dd',stack:'s',borderRadius:0,
             datalabels:{display:true,color:'#fff',font:{size:6,weight:'bold'},
-              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`MM ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`MM:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
               ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
           {label:'V.MNP',data:items.map(x=>x.vmnp||0),backgroundColor:'#a9e34b',stack:'s',borderRadius:0,
             datalabels:{display:true,color:'#555',font:{size:6,weight:'bold'},
-              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`VM ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`VM:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
               ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
           {label:'기변',data:items.map(x=>x.premium||0),backgroundColor:AMB+'dd',stack:'s',borderRadius:0,
             datalabels:{display:true,color:'#fff',font:{size:6,weight:'bold'},
-              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`기 ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`기:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
               ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
           {label:'합계',data:totals2,backgroundColor:'transparent',stack:'s',
             datalabels:{display:true,color:T1,font:{size:7,weight:'bold'},
@@ -1176,9 +1189,9 @@ function renderTab(i){
 }
 
 // ─── TAB 0 ───
-let _goals={}; // {본부명: 목표수}
-try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
+// _goals: 최상단 선언됨
 
+// _mainChartView: 최상단 선언됨
 function renderMainChart(d){
   const bd=d.bonbu_detail||[];
   const labels=bd.map(b=>b.name);
@@ -1241,8 +1254,7 @@ function renderMainChart(d){
               const b=bd[ctx.dataIndex];
               const g=goals[ctx.dataIndex]||0;
               const rate=g>0?Math.round(b.sale/g*100):null;
-              const rateStr=rate!==null?`
-${rate}%달성`:'';
+              const rateStr=rate!==null?` ▶${rate}%달성`:'';
               return `${v>=0?'+':''}${fmt(v)}${rateStr}`;
             },anchor:'center',align:'center',clamp:true}},
         ...(hasGoals?[{label:'판매목표',data:goals,type:'line',borderColor:AMB,borderDash:[5,3],backgroundColor:'transparent',pointRadius:3,borderWidth:1.5,yAxisID:'y',
@@ -1266,50 +1278,31 @@ ${rate}%달성`:'';
   const totals=bd.map(b=>b.sale||0);
   const maxT=Math.max(...totals,1);
 
-  // 스택 레이블: "0 123(32%)
-MM 45(12%)
-VM 23(6%)
-기 89(24%)"
-  const stackLabel=(ctx)=>{
-    const i=ctx.dataIndex; const b=bd[i]; const t=b.sale||1;
-    const n=b.new_sub||0, m=b.mmnp||0, v=b.vmnp||0, p=b.premium||0;
-    // 목표 달성률
-    const g=goals[i]||0;
-    const rateStr=g>0?` (${Math.round(b.sale/g*100)}%)`: '';
-    return `${fmt(b.sale)}${rateStr}
-0 ${fmt(n)}(${Math.round(n/t*100)}%)
-MM ${fmt(m)}(${Math.round(m/t*100)}%)
-VM ${fmt(v)}(${Math.round(v/t*100)}%)
-기 ${fmt(p)}(${Math.round(p/t*100)}%)`;
-  };
+  // 스택 레이블: 각 바 위에 "0:건수(%)/MM:건수(%)/VM:건수(%)/기:건수(%)" 표시
+  // stackLabel 제거됨
 
   charts['mainChart']=new Chart(el,{type:'bar',
     data:{labels,datasets:[
       {label:'010신규',data:n010,backgroundColor:T2+'dd',stack:'sale',borderRadius:0,
         datalabels:{display:true,color:'#fff',font:{size:6.5,weight:'bold'},
-          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`0 ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`0:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
           ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
       {label:'M.MNP',data:mmnp,backgroundColor:BLU+'dd',stack:'sale',borderRadius:0,
         datalabels:{display:true,color:'#fff',font:{size:6.5,weight:'bold'},
-          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`MM ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`MM:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
           ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
       {label:'V.MNP',data:vmnp,backgroundColor:'#a9e34b',stack:'sale',borderRadius:0,
         datalabels:{display:true,color:'#555',font:{size:6.5,weight:'bold'},
-          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`VM ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`VM:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
           ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
       {label:'기변',data:prem,backgroundColor:AMB+'dd',stack:'sale',borderRadius:0,
         datalabels:{display:true,color:'#fff',font:{size:6.5,weight:'bold'},
-          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`기 ${fmt(v)}
-(${Math.round(v/t*100)}%)`:'';}
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`기:${fmt(v)}(${Math.round(v/t*100)}%)`:'';}
           ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
       {label:'합계레이블',data:totals,backgroundColor:'transparent',stack:'sale',borderRadius:0,
         datalabels:{display:true,color:'var(--t1)',font:{size:7,weight:'bold'},
           formatter:(v,ctx)=>{const b=bd[ctx.dataIndex];const g=goals[ctx.dataIndex]||0;
-            return g>0?`${fmt(v)}
-▶${Math.round(b.sale/g*100)}%달성`:`${fmt(v)}`;}
+            return g>0?`${fmt(v)} ▶${Math.round(b.sale/g*100)}%`:`${fmt(v)}`;}
           ,anchor:'end',align:'top',offset:2}},
       {label:'ARPU',data:arpus,type:'line',borderColor:RED,backgroundColor:'transparent',
         pointRadius:3,pointBackgroundColor:RED,borderWidth:2,yAxisID:'y2',tension:.3,
@@ -1349,7 +1342,6 @@ VM ${fmt(v)}(${Math.round(v/t*100)}%)
         x:{stacked:true,ticks:{font:{size:8}},grid:{display:false}}}}});
 }
 
-let _mainChartView='sale';
 function setMainChartView(v){
   _mainChartView=v;
   ['sale','churn','net'].forEach(k=>{
@@ -1529,8 +1521,6 @@ function renderTab2(d){
 }
 
 // ─── TAB 3 채널 중분류 ───
-let _chGroup='all';
-let _chGroupData=null; // 전체 channel_detail 캐시
 
 // 채널명 → 중분류 매핑
 const CH_GROUP_MAP={
@@ -1715,7 +1705,7 @@ const DEV_GROUPS = {
   '키즈/폴더':['폼폼푸린 키즈폰', '시나모롤 키즈폰', '클래식 폴더', '갤럭시 Jump4', '맘편안폰S'],
 };
 
-let _devGroupMode = null; // null=전체, 'S26류' 등
+// _devGroupMode: 최상단 선언됨
 
 function setDevGroupMode(groupKey) {
   if(_devGroupMode === groupKey) {
@@ -1734,9 +1724,7 @@ function setDevGroupMode(groupKey) {
 }
 
 // ─── 단말 드릴다운 헬퍼 ───
-let _devFilter = null; // 현재 드릴다운 필터 (null=전체)
-let _devBrand = 'all';
-let _devData = null; // 현재 단말 데이터
+// _devFilter, _devBrand, _devData: 최상단 선언됨
 
 function filterDevBrand(brand){
   _devBrand=brand;
@@ -1863,7 +1851,6 @@ function renderDevChart(){
 }
 
 // ─── TAB 5 ───
-let _commView='ai';
 
 function setCommView(v){
   _commView=v;
@@ -2002,7 +1989,6 @@ function renderTab5(d){
 }
 
 // ─── TAB 6 KTOA ───
-let _ktoaFilter='MNO';
 
 function setKtoaFilter(f){
   _ktoaFilter=f;
@@ -2605,10 +2591,7 @@ async function renderTab8(d){
 
 
 // ─── TAB 9: 시장정보 ───
-let _mktReg='수도권', _mktType='공통', _mktSub='MNP';
-let _mktTab=0;
-let _mktPolicies=[];
-try{_mktPolicies=JSON.parse(localStorage.getItem('kt_mkt_policies')||'[]');}catch(e){}
+// _mktPolicies, _mktTab: 최상단 선언됨
 
 // 4/23 기준 KT 채널별 단가
 const KT_CH_FEES=[
@@ -2827,6 +2810,134 @@ function renderMktKtTable(){
 
 function renderTab9(){
   switchMktTab(_mktTab);
+}
+
+
+// ─── 목표 설정 ───
+function openGoalModal(){
+  if(!D)return;
+  const area=document.getElementById('goalInputArea');
+  if(!area)return;
+  const bonbus=D.bonbu_detail.map(b=>b.name);
+  area.innerHTML=bonbus.map(nm=>`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <label style="font-size:10px;min-width:120px;font-weight:600">${nm}</label>
+      <input type="number" data-bonbu="${escQ(nm)}" placeholder="목표 판매수"
+        value="${_goals[nm]||''}"
+        style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:3px 8px;width:100px">
+    </div>`).join('');
+  document.getElementById('goalModal').classList.add('open');
+}
+function closeGoalModal(){document.getElementById('goalModal').classList.remove('open');}
+function saveGoals(){
+  document.querySelectorAll('#goalInputArea input[data-bonbu]').forEach(inp=>{
+    const nm=inp.getAttribute('data-bonbu');
+    const v=parseInt(inp.value)||0;
+    if(v>0)_goals[nm]=v;else delete _goals[nm];
+  });
+  try{localStorage.setItem('kt_goals',JSON.stringify(_goals));}catch(e){}
+  closeGoalModal();
+  if(D)renderMainChart(D);
+}
+function resetGoals(){
+  _goals={};
+  try{localStorage.removeItem('kt_goals');}catch(e){}
+  closeGoalModal();
+  if(D)renderMainChart(D);
+}
+
+// ─── 유사대리점 비교 ───
+function showSimilarAgency(name,sale){
+  if(!D)return;
+  const all=D.agency_detail||[];
+  const range=sale*0.3;
+  const similar=all.filter(a=>a.name!==name&&Math.abs(a.sale-sale)<=range)
+    .sort((a,b)=>Math.abs(a.sale-sale)-Math.abs(b.sale-sale)).slice(0,9);
+  const target=all.find(a=>a.name===name)||{name,sale,arpu:0,mnp:0,churn:0,net:0,new_sub:0};
+  const peers=[target,...similar];
+  document.getElementById('simTitle').textContent=`유사 대리점 비교: ${name}`;
+  document.getElementById('simSub').textContent=`판매량 ${fmt(sale)}건 기준 ±30% CAPA ${similar.length}개`;
+  document.getElementById('simContent').innerHTML=`
+    <div class="tw" style="margin-top:10px"><table>
+      <thead><tr><th>대리점</th><th class="num">판매</th><th class="num">신규</th>
+        <th class="num">MNP</th><th class="num">해지</th>
+        <th class="num">순증</th><th class="num">ARPU</th><th>비고</th></tr></thead>
+      <tbody>${peers.map((a,i)=>`<tr style="${i===0?'background:#e6f5f5;font-weight:700':''}">
+        <td>${a.name}${i===0?' ★':''}</td>
+        <td class="num">${fmt(a.sale)}</td><td class="num">${fmt(a.new_sub||0)}</td>
+        <td class="num">${fmt(a.mnp||0)}</td><td class="num">${fmt(a.churn||0)}</td>
+        <td class="num" style="color:${(a.net||0)>=0?T1:RED}">${(a.net||0)>=0?'+':''}${fmt(a.net||0)}</td>
+        <td class="num">${fmt(a.arpu||0)}</td>
+        <td style="font-size:9px;color:var(--muted)">${i===0?'기준':a.sale>sale?'▲고CAPA':'▼저CAPA'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  document.getElementById('similarModal').classList.add('open');
+}
+
+
+// ─── 정책 변동 메모 ───
+function addPolicyMemo(){
+  const date=document.getElementById('pmDate')?.value||new Date().toISOString().slice(0,10);
+  const model=document.getElementById('pmModel')?.value?.trim()||'';
+  const type=document.getElementById('pmType')?.value?.trim()||'';
+  const channel=document.getElementById('pmChannel')?.value?.trim()||'';
+  const amount=document.getElementById('pmAmount')?.value||'';
+  if(!model&&!amount)return;
+  const memo={date,model,type,channel,amount,id:Date.now()};
+  _policyMemos.unshift(memo);
+  try{localStorage.setItem('kt_policy_memos',JSON.stringify(_policyMemos.slice(0,100)));}catch(e){}
+  renderPolicyMemos();
+  ['pmModel','pmType','pmChannel','pmAmount'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+}
+
+function deletePolicyMemo(id){
+  _policyMemos=_policyMemos.filter(m=>m.id!==id);
+  try{localStorage.setItem('kt_policy_memos',JSON.stringify(_policyMemos));}catch(e){}
+  renderPolicyMemos();
+}
+
+function renderPolicyMemos(){
+  const el=document.getElementById('policyMemoList');if(!el)return;
+  if(!_policyMemos.length){el.innerHTML='<div style="color:var(--muted);padding:6px;font-size:10px">기록 없음</div>';return;}
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:10px">
+    <thead><tr style="background:#f0f8f8">
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">날짜</th>
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">모델</th>
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">유형</th>
+      <th style="padding:3px 6px;text-align:left;font-size:8px;color:var(--muted)">채널</th>
+      <th style="padding:3px 6px;text-align:right;font-size:8px;color:var(--muted)">금액</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${_policyMemos.map(m=>`<tr style="border-bottom:1px solid var(--bg)">
+      <td style="padding:3px 6px;color:var(--muted)">${m.date}</td>
+      <td style="padding:3px 6px;font-weight:700;color:var(--t1)">${m.model}</td>
+      <td style="padding:3px 6px">${m.type||'-'}</td>
+      <td style="padding:3px 6px">${m.channel||'-'}</td>
+      <td style="padding:3px 6px;text-align:right;font-weight:700">${m.amount?m.amount+'만':'-'}</td>
+      <td style="padding:3px 6px"><span onclick="deletePolicyMemo(${m.id})" style="cursor:pointer;color:var(--muted);font-size:10px">✕</span></td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+// ─── 수수료 실무분류 ───
+function parseCommPolicy(name,channel,item){
+  const n=name||'';
+  const sm=n.match(/(MRA|MWA|MBA|MPA|MRN|MZC|MRO)-(\d{2})/);
+  const series=sm?sm[1]:null;
+  const num=sm?parseInt(sm[2]):null;
+  const channelCls=
+    series==='MRA'?'소매(MRA)':series==='MWA'?'도매/온라인(MWA)':
+    (series==='MBA'||series==='MZC')?'공통(MBA)':(series==='MPA'||series==='MRN')?'촉진/지역(MPA)':
+    series==='MRO'?'대채기직영(MRO)':'기타';
+  const policyType=
+    num===0?'00.인프라':num===1?'01.기본정책':num===2?'02.매출성장(돈버는모델)':
+    num===3?'03.STORAGE/2ndDevice':num===4?'04.활력/시장대응':num===5?'05.장기고객기변':
+    num===6?'06.부가서비스':num===7?'07.Pre-Sales':num===8?'08.신모델SCM':
+    num===9?'09.목표달성/시상':num!==null?String(num).padStart(2,'0')+'.기타':'기타';
+  const itemType={'F300':'활성화','F420':'유지','F432':'부가서비스'}[item]||item||'기타';
+  const colorMap={'MRA':T1,'MWA':BLU,'MBA':PRP,'MZC':PRP,'MPA':AMB,'MRN':AMB,'MRO':'#555'};
+  const color=colorMap[series]||'#888';
+  return {series:series||'기타',channelCls,policyType,itemType,color};
 }
 
 // ─── 업데이트 알림 시스템 ───
