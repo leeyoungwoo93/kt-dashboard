@@ -24,6 +24,12 @@ _attach_column(Sales, "new010", Integer, 0)     # 010신규: 순수 신규
 _attach_column(Sales, "new_arpu", Float, 0.0)   # 신규ARPU: 원천 없으면 arpu 가중평균으로 대체
 _attach_column(DeviceSales, "new_sale", Integer, 0)  # 단말별 신규판매. 원천 없으면 0
 
+# 가입자 모델은 과거 스키마(sub_today/sub_yesterday)와 현재 스키마(ref_date/sub_count)가
+# 혼재할 수 있어 main.py에서 필요한 컬럼을 런타임에 보강한다.
+_attach_column(Subscriber, "agency_code", String, "")
+_attach_column(Subscriber, "ref_date", String, "")
+_attach_column(Subscriber, "sub_count", Integer, 0)
+
 class StoreSales(Base):
     __tablename__ = "store_sales"
     id = Column(Integer, primary_key=True, index=True)
@@ -705,6 +711,9 @@ def _migrate(engine):
         add_col(conn, Sales.__tablename__, "new_arpu FLOAT DEFAULT 0")
         add_col(conn, Commission.__tablename__, "commission_policy_name VARCHAR DEFAULT ''")
         add_col(conn, DeviceSales.__tablename__, "new_sale INTEGER DEFAULT 0")
+        add_col(conn, Subscriber.__tablename__, "agency_code VARCHAR DEFAULT ''")
+        add_col(conn, Subscriber.__tablename__, "ref_date VARCHAR DEFAULT ''")
+        add_col(conn, Subscriber.__tablename__, "sub_count INTEGER DEFAULT 0")
 
 Base.metadata.create_all(bind=engine)
 _migrate(engine)
