@@ -5,13 +5,116 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import List
 import pandas as pd
-from sqlalchemy import func, text
+from sqlalchemy import func, text, Column, Integer, Float, String
 from app.database import engine, Base, SessionLocal
 from app.models.sales import Sales, Commission, DeviceSales, Inventory, Subscriber
 
 MIN_BONBU = 100
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 BATCH = 200
+
+
+# ── Dynamic columns / auxiliary tables ────────────────────────────
+def _attach_column(model, attr, coltype, default=None):
+    if not hasattr(model, attr):
+        setattr(model, attr, Column(attr, coltype, default=default))
+
+_attach_column(Sales, "new_sale", Integer, 0)   # 신규판매: 010신규 + MNP 성격의 전체 신규판매
+_attach_column(Sales, "new010", Integer, 0)     # 010신규: 순수 신규
+_attach_column(Sales, "new_arpu", Float, 0.0)   # 신규ARPU: 원천 없으면 arpu 가중평균으로 대체
+_attach_column(DeviceSales, "new_sale", Integer, 0)  # 단말별 신규판매. 원천 없으면 0
+
+class StoreSales(Base):
+    __tablename__ = "store_sales"
+    id = Column(Integer, primary_key=True, index=True)
+    ref_month = Column(String, index=True, default="")
+    sale_date = Column(String, index=True, default="")
+    bonbu = Column(String, index=True, default="")
+    team = Column(String, index=True, default="")
+    agency = Column(String, index=True, default="")
+    agency_code = Column(String, index=True, default="")
+    store = Column(String, index=True, default="")
+    contact = Column(String, index=True, default="")
+    channel = Column(String, index=True, default="")
+    sale = Column(Integer, default=0)
+    new_sale = Column(Integer, default=0)
+    new010 = Column(Integer, default=0)
+    mnp = Column(Integer, default=0)
+    premium = Column(Integer, default=0)
+    churn = Column(Integer, default=0)
+    revenue = Column(Float, default=0.0)
+    arpu = Column(Float, default=0.0)
+
+class CommonSubsidy(Base):
+    __tablename__ = "common_subsidy"
+    id = Column(Integer, primary_key=True, index=True)
+    ref_date = Column(String, index=True, default="")
+    model_name = Column(String, index=True, default="")
+    model_code = Column(String, index=True, default="")
+    carrier = Column(String, index=True, default="KT")
+    join_type = Column(String, index=True, default="")
+    channel = Column(String, index=True, default="")
+    plan_group = Column(String, index=True, default="")
+    amount = Column(Float, default=0.0)
+
+class SalesTarget(Base):
+    __tablename__ = "sales_target"
+    id = Column(Integer, primary_key=True, index=True)
+    yyyymm = Column(String, index=True, default="")
+    level = Column(String, index=True, default="bonbu")
+    name = Column(String, index=True, default="")
+    target_sale = Column(Integer, default=0)
+    target_new_sale = Column(Integer, default=0)
+    target_mnp = Column(Integer, default=0)
+
+class BusinessDay(Base):
+    __tablename__ = "business_day"
+    id = Column(Integer, primary_key=True, index=True)
+    yyyymm = Column(String, index=True, default="")
+    elapsed_days = Column(Integer, default=0)
+    total_days = Column(Integer, default=0)
+    annual_elapsed_days = Column(Integer, default=0)
+    annual_total_days = Column(Integer, default=0)
+
+
+def _row_val(row, idx, default=0):
+    try:
+        return row.iloc[idx]
+    except Exception:
+        return default
+
+
+def _pick_col(df, candidates, fallback=None):
+    cols = [str(c).strip() for c in df.columns]
+    for cand in candidates:
+        for c in cols:
+            if cand in c:
+                return c
+    return fallback
+
+
+def _read_headered_excel(contents, header_terms):
+    raw = pd.read_excel(io.BytesIO(contents), header=None)
+    best_i, best_score = 0, -1
+    for i in range(min(12, len(raw))):
+        vals = [str(v).strip() for v in raw.iloc[i].tolist() if pd.notna(v)]
+        joined = " ".join(vals)
+        score = sum(1 for t in header_terms if t in joined)
+        if score > best_score:
+            best_i, best_score = i, score
+    cols = []
+    used = {}
+    for j, v in enumerate(raw.iloc[best_i].tolist()):
+        name = str(v).strip() if pd.notna(v) and str(v).strip() not in ("", "nan") else f"col_{j}"
+        if name in used:
+            used[name] += 1
+            name = f"{name}_{used[name]}"
+        else:
+            used[name] = 0
+        cols.append(name)
+    df = raw.iloc[best_i + 1:].copy()
+    df.columns = cols
+    return df
 
 def safe_int(v):
     try: return int(v) if pd.notna(v) else 0
@@ -26,34 +129,44 @@ def _load_sales(db, contents):
     db.query(Sales).delete(); db.commit()
     buf = []
     for _, row in df.iterrows():
-        val_bonbu = str(row[3]) if pd.notna(row[3]) else ""
+        val_bonbu = str(_row_val(row, 3, "")) if pd.notna(_row_val(row, 3, "")) else ""
         if val_bonbu in ("", "nan") or val_bonbu.lstrip("-").isdigit(): continue
-        buf.append(Sales(
-            boomun=str(row[1]) if pd.notna(row[1]) else "",
-            bonbu=val_bonbu, team=str(row[5]) if pd.notna(row[5]) else "",
-            dept=str(row[7]) if pd.notna(row[7]) else "",
-            agency_code=str(row[8]) if pd.notna(row[8]) else "",
-            agency_org=str(row[9]) if pd.notna(row[9]) else "",
-            agency=str(row[11]) if pd.notna(row[11]) else "",
-            channel1=str(row[12]) if pd.notna(row[12]) else "",
-            channel2=str(row[13]) if pd.notna(row[13]) else "",
-            channel3=str(row[14]) if pd.notna(row[14]) else "",
-            channel_sub=str(row[19]) if pd.notna(row[19]) else "",
-            sale_type=str(row[15]) if pd.notna(row[15]) else "",
-            kids=str(row[16]) if pd.notna(row[16]) else "",
-            foreigner=str(row[17]) if pd.notna(row[17]) else "",
-            k110=str(row[18]) if pd.notna(row[18]) else "",
-            sale_count=safe_int(row[21]), net_add=safe_int(row[22]),
-            new_sub=safe_int(row[23]), mnp=safe_int(row[25]),
-            smnp=safe_int(row[26]), lmnp=safe_int(row[27]),
-            mmnp=safe_int(row[28]), vmnp=safe_int(row[29]),
-            churn=safe_int(row[30]), mnp_churn=safe_int(row[32]),
-            smnp_churn=safe_int(row[33]), lmnp_churn=safe_int(row[34]),
-            mmnp_churn=safe_int(row[35]), vmnp_churn=safe_int(row[36]),
-            forced_churn=safe_int(row[37]), premium_change=safe_int(row[38]),
-            arpu=safe_float(row[39]), revenue=safe_float(row[40]),
-            subscriber=safe_int(row[41]),
-        ))
+        sale_cnt = safe_int(_row_val(row, 21))
+        new_sale = safe_int(_row_val(row, 23))
+        n010_raw = safe_int(_row_val(row, 24))
+        mnp_val = safe_int(_row_val(row, 25))
+        n010 = n010_raw if n010_raw > 0 else max(0, new_sale - mnp_val)
+        arpu_val = safe_float(_row_val(row, 39))
+        obj = Sales(
+            boomun=str(_row_val(row, 1, "")) if pd.notna(_row_val(row, 1, "")) else "",
+            bonbu=val_bonbu, team=str(_row_val(row, 5, "")) if pd.notna(_row_val(row, 5, "")) else "",
+            dept=str(_row_val(row, 7, "")) if pd.notna(_row_val(row, 7, "")) else "",
+            agency_code=str(_row_val(row, 8, "")) if pd.notna(_row_val(row, 8, "")) else "",
+            agency_org=str(_row_val(row, 9, "")) if pd.notna(_row_val(row, 9, "")) else "",
+            agency=str(_row_val(row, 11, "")) if pd.notna(_row_val(row, 11, "")) else "",
+            channel1=str(_row_val(row, 12, "")) if pd.notna(_row_val(row, 12, "")) else "",
+            channel2=str(_row_val(row, 13, "")) if pd.notna(_row_val(row, 13, "")) else "",
+            channel3=str(_row_val(row, 14, "")) if pd.notna(_row_val(row, 14, "")) else "",
+            channel_sub=str(_row_val(row, 19, "")) if pd.notna(_row_val(row, 19, "")) else "",
+            sale_type=str(_row_val(row, 15, "")) if pd.notna(_row_val(row, 15, "")) else "",
+            kids=str(_row_val(row, 16, "")) if pd.notna(_row_val(row, 16, "")) else "",
+            foreigner=str(_row_val(row, 17, "")) if pd.notna(_row_val(row, 17, "")) else "",
+            k110=str(_row_val(row, 18, "")) if pd.notna(_row_val(row, 18, "")) else "",
+            sale_count=sale_cnt, net_add=safe_int(_row_val(row, 22)),
+            new_sub=new_sale, mnp=mnp_val,
+            smnp=safe_int(_row_val(row, 26)), lmnp=safe_int(_row_val(row, 27)),
+            mmnp=safe_int(_row_val(row, 28)), vmnp=safe_int(_row_val(row, 29)),
+            churn=safe_int(_row_val(row, 30)), mnp_churn=safe_int(_row_val(row, 32)),
+            smnp_churn=safe_int(_row_val(row, 33)), lmnp_churn=safe_int(_row_val(row, 34)),
+            mmnp_churn=safe_int(_row_val(row, 35)), vmnp_churn=safe_int(_row_val(row, 36)),
+            forced_churn=safe_int(_row_val(row, 37)), premium_change=safe_int(_row_val(row, 38)),
+            arpu=arpu_val, revenue=safe_float(_row_val(row, 40)),
+            subscriber=safe_int(_row_val(row, 41)),
+        )
+        obj.new_sale = new_sale
+        obj.new010 = n010
+        obj.new_arpu = arpu_val
+        buf.append(obj)
         if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
     if buf: db.bulk_save_objects(buf); db.commit()
 
@@ -148,11 +261,13 @@ def _load_device(db, contents):
             sc = safe_int(row.iloc[sc_col]) if sc_col < len(row) else 0
             rv = safe_float(row.iloc[rv_col]) if (rv_col is not None and rv_col < len(row)) else 0.0
             if sc == 0 and rv == 0.0: continue
-            buf.append(DeviceSales(
+            obj = DeviceSales(
                 bonbu=bonbu, team=team, agency_code=agency_code, agency=agency,
                 model_code=rep_model_code, model_name=model_name,
                 yyyymm=yyyymm, sale_count=sc, revenue=rv,
-            ))
+            )
+            obj.new_sale = 0
+            buf.append(obj)
             if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
     if buf: db.bulk_save_objects(buf); db.commit()
 def _load_inventory(db, contents):
@@ -253,6 +368,139 @@ def _load_subscriber(db, contents):
     if buf: db.bulk_save_objects(buf); db.commit()
 
 _ktoa_cache = None
+
+
+def _load_storesales(db, contents):
+    df = _read_headered_excel(contents, ["본부", "담당", "대리점", "판매", "신규", "010", "MNP", "해지", "ARPU"])
+    db.query(StoreSales).delete(); db.commit()
+    c_month = _pick_col(df, ["년월", "월", "기준월"])
+    c_date = _pick_col(df, ["일자", "기준일", "개통일"])
+    c_bonbu = _pick_col(df, ["본부"])
+    c_team = _pick_col(df, ["담당", "지사"])
+    c_agency = _pick_col(df, ["계약대리점", "대리점"])
+    c_agency_code = _pick_col(df, ["대리점코드", "무선유통조직", "판매조직"])
+    c_store = _pick_col(df, ["판매매장", "매장명", "매장"])
+    c_contact = _pick_col(df, ["판매접점", "접점"])
+    c_channel = _pick_col(df, ["채널", "판매유형", "판매경로"])
+    c_sale = _pick_col(df, ["판매량", "총판매", "판매건수", "판매"])
+    c_new = _pick_col(df, ["신규판매", "신규"])
+    c_010 = _pick_col(df, ["010"])
+    c_mnp = _pick_col(df, ["MNP", "번호이동"])
+    c_premium = _pick_col(df, ["기변", "기기변경"])
+    c_churn = _pick_col(df, ["해지"])
+    c_rev = _pick_col(df, ["판매매출", "매출"])
+    c_arpu = _pick_col(df, ["ARPU", "arpu"])
+    buf = []
+    for _, row in df.iterrows():
+        bonbu = str(row.get(c_bonbu, "")).strip() if c_bonbu else ""
+        store = str(row.get(c_store, "")).strip() if c_store else ""
+        contact = str(row.get(c_contact, "")).strip() if c_contact else ""
+        sale = safe_int(row.get(c_sale, 0)) if c_sale else 0
+        if bonbu in ("", "nan", "None") and store in ("", "nan", "None") and sale == 0:
+            continue
+        new_sale = safe_int(row.get(c_new, 0)) if c_new else 0
+        mnp = safe_int(row.get(c_mnp, 0)) if c_mnp else 0
+        n010 = safe_int(row.get(c_010, 0)) if c_010 else max(0, new_sale - mnp)
+        buf.append(StoreSales(
+            ref_month=str(row.get(c_month, "")).strip()[:6] if c_month else "",
+            sale_date=str(row.get(c_date, "")).strip()[:10] if c_date else "",
+            bonbu=bonbu,
+            team=str(row.get(c_team, "")).strip() if c_team else "",
+            agency=str(row.get(c_agency, "")).strip() if c_agency else "",
+            agency_code=str(row.get(c_agency_code, "")).strip() if c_agency_code else "",
+            store=store,
+            contact=contact,
+            channel=str(row.get(c_channel, "")).strip() if c_channel else "",
+            sale=sale,
+            new_sale=new_sale,
+            new010=n010,
+            mnp=mnp,
+            premium=safe_int(row.get(c_premium, 0)) if c_premium else 0,
+            churn=safe_int(row.get(c_churn, 0)) if c_churn else 0,
+            revenue=safe_float(row.get(c_rev, 0)) if c_rev else 0.0,
+            arpu=safe_float(row.get(c_arpu, 0)) if c_arpu else 0.0,
+        ))
+        if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
+    if buf: db.bulk_save_objects(buf); db.commit()
+
+
+def _load_subsidy(db, contents):
+    df = _read_headered_excel(contents, ["단말", "모델", "지원금", "공통", "MNP", "기변", "010"])
+    db.query(CommonSubsidy).delete(); db.commit()
+    c_date = _pick_col(df, ["일자", "기준일", "시작일", "변경일"])
+    c_model = _pick_col(df, ["단말기별칭명", "단말명", "모델명", "단말"])
+    c_code = _pick_col(df, ["모델코드", "단말기모델", "대표단말"])
+    c_carrier = _pick_col(df, ["사업자", "통신사"])
+    c_type = _pick_col(df, ["가입유형", "유형"])
+    c_channel = _pick_col(df, ["채널", "판매경로"])
+    c_plan = _pick_col(df, ["요금", "요금제", "구간"])
+    c_amount = _pick_col(df, ["지원금", "공시", "공통", "금액", "지급액"])
+    buf = []
+    for _, row in df.iterrows():
+        model = str(row.get(c_model, "")).strip() if c_model else ""
+        amount = safe_float(row.get(c_amount, 0)) if c_amount else 0.0
+        if model in ("", "nan", "None", "합계") and amount == 0:
+            continue
+        buf.append(CommonSubsidy(
+            ref_date=str(row.get(c_date, "")).strip()[:10] if c_date else "",
+            model_name=model,
+            model_code=str(row.get(c_code, "")).strip() if c_code else "",
+            carrier=str(row.get(c_carrier, "KT")).strip() if c_carrier else "KT",
+            join_type=str(row.get(c_type, "")).strip() if c_type else "",
+            channel=str(row.get(c_channel, "")).strip() if c_channel else "",
+            plan_group=str(row.get(c_plan, "")).strip() if c_plan else "",
+            amount=amount,
+        ))
+        if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
+    if buf: db.bulk_save_objects(buf); db.commit()
+
+
+def _load_targets(db, contents):
+    df = _read_headered_excel(contents, ["년월", "본부", "담당", "목표", "판매"])
+    db.query(SalesTarget).delete(); db.commit()
+    c_mm = _pick_col(df, ["년월", "월"])
+    c_level = _pick_col(df, ["구분", "레벨"])
+    c_name = _pick_col(df, ["본부", "담당", "대리점", "조직"])
+    c_sale = _pick_col(df, ["판매목표", "목표판매", "목표"])
+    c_new = _pick_col(df, ["신규목표", "신규"])
+    c_mnp = _pick_col(df, ["MNP목표", "MNP"])
+    buf=[]
+    for _, row in df.iterrows():
+        name = str(row.get(c_name, "")).strip() if c_name else ""
+        if name in ("", "nan", "None"): continue
+        buf.append(SalesTarget(
+            yyyymm=str(row.get(c_mm, "")).strip()[:6] if c_mm else "",
+            level=str(row.get(c_level, "bonbu")).strip() if c_level else "bonbu",
+            name=name,
+            target_sale=safe_int(row.get(c_sale, 0)) if c_sale else 0,
+            target_new_sale=safe_int(row.get(c_new, 0)) if c_new else 0,
+            target_mnp=safe_int(row.get(c_mnp, 0)) if c_mnp else 0,
+        ))
+        if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf=[]
+    if buf: db.bulk_save_objects(buf); db.commit()
+
+
+def _load_business_days(db, contents):
+    df = _read_headered_excel(contents, ["년월", "영업일", "경과", "전체"])
+    db.query(BusinessDay).delete(); db.commit()
+    c_mm = _pick_col(df, ["년월", "월"])
+    c_elapsed = _pick_col(df, ["경과", "현재", "실적영업일"])
+    c_total = _pick_col(df, ["총영업일", "전체", "마감", "영업일수"])
+    c_ae = _pick_col(df, ["연간경과", "연경과"])
+    c_at = _pick_col(df, ["연간총", "연총", "연간영업"])
+    buf=[]
+    for _, row in df.iterrows():
+        mm=str(row.get(c_mm, "")).strip()[:6] if c_mm else ""
+        if mm in ("", "nan", "None"): continue
+        buf.append(BusinessDay(
+            yyyymm=mm,
+            elapsed_days=safe_int(row.get(c_elapsed, 0)) if c_elapsed else 0,
+            total_days=safe_int(row.get(c_total, 0)) if c_total else 0,
+            annual_elapsed_days=safe_int(row.get(c_ae, 0)) if c_ae else 0,
+            annual_total_days=safe_int(row.get(c_at, 0)) if c_at else 0,
+        ))
+        if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf=[]
+    if buf: db.bulk_save_objects(buf); db.commit()
 
 def _load_ktoa(contents):
     """
@@ -363,30 +611,37 @@ def _load_ktoa(contents):
         lgu_from_kt = g(fc("LGU+", "KT"))
         mv_from_kt  = g(fc("MVNO", "KT"))
 
-        # SKT 순증: (타사→SKT 유입) - (SKT→타사 이탈)
-        # fc("KT","SKT")=KT→SKT=SKT유입, fc("LGU+","SKT")=LGU→SKT=SKT유입
-        # fc("SKT","KT")=SKT→KT=SKT이탈, fc("SKT","LGU")=SKT→LGU=SKT이탈
-        skt_in  = kt_from_skt + g(fc("LGU+", "SKT"))   # 타사→SKT
-        skt_out = skt_from_kt + g(fc("SKT", "LGU"))     # SKT→타사
+        skt_from_lgu = g(fc("SKT", "LGU"))
+        skt_from_mv = g(fc("SKT", "MVNO"))
+        lgu_from_skt = g(fc("LGU+", "SKT"))
+        lgu_from_mv = g(fc("LGU+", "MVNO"))
+        mv_from_skt = g(fc("MVNO", "SKT"))
+        mv_from_lgu = g(fc("MVNO", "LGU"))
 
-        # LGU+ 순증: (타사→LGU 유입) - (LGU→타사 이탈)
-        lgu_in  = kt_from_lgu + g(fc("SKT", "LGU"))    # 타사→LGU
-        lgu_out = lgu_from_kt + g(fc("LGU+", "SKT"))   # LGU→타사
+        # KTOA 파일은 [목적사업자]_[출발사업자] 구조다.
+        # 2026-04-21 검증: KT=(1191+714)-(1248+620)=+37.
+        kt_mno_in  = kt_from_skt + kt_from_lgu
+        kt_mno_out = skt_from_kt + lgu_from_kt
+        kt_mno_net = kt_mno_in - kt_mno_out
 
-        # 순증 = 이탈(KT→타사) - 유입(타사→KT)
-        # 이탈: fc("KT","SKT")=KT→SKT, fc("KT","LGU")=KT→LGU
-        # 유입: fc("SKT","KT")=SKT→KT, fc("LGU","KT")=LGU→KT
-        # 검증(4/22): (1240+729)-(1251+726)=-8 ✓
-        kt_mno_in  = skt_from_kt + lgu_from_kt   # 타사→KT (유입)
-        kt_mno_out = kt_from_skt + kt_from_lgu   # KT→타사 (이탈)
-        kt_mno_net = kt_mno_in - kt_mno_out       # 순증 = 유입-이탈
+        skt_mno_in  = skt_from_kt + skt_from_lgu
+        skt_mno_out = kt_from_skt + lgu_from_skt
+        skt_mno_net = skt_mno_in - skt_mno_out
 
-        kt_all_in  = kt_from_skt + kt_from_lgu + kt_from_mv
-        kt_all_out = skt_from_kt + lgu_from_kt + mv_from_kt
-        kt_all_net = kt_all_in - kt_all_out
+        lgu_mno_in  = lgu_from_kt + lgu_from_skt
+        lgu_mno_out = kt_from_lgu + skt_from_lgu
+        lgu_mno_net = lgu_mno_in - lgu_mno_out
 
-        skt_mno_net = skt_in - skt_out
-        lgu_mno_net = lgu_in - lgu_out
+        kt_mvno_net = kt_from_mv - mv_from_kt
+        skt_mvno_net = skt_from_mv - mv_from_skt
+        lgu_mvno_net = lgu_from_mv - mv_from_lgu
+
+        kt_all_in  = kt_mno_in + kt_from_mv
+        kt_all_out = kt_mno_out + mv_from_kt
+        kt_all_net = kt_mno_net + kt_mvno_net
+
+        skt_all_net = skt_mno_net + skt_mvno_net
+        lgu_all_net = lgu_mno_net + lgu_mvno_net
 
         rec = {"date": str(row["date"])}
         for c in all_cols[1:]:
@@ -396,9 +651,14 @@ def _load_ktoa(contents):
             "KT_유입MNO": kt_mno_in, "KT_이탈MNO": kt_mno_out, "KT_순증MNO": kt_mno_net,
             "KT_유입전체": kt_all_in, "KT_이탈전체": kt_all_out, "KT_순증전체": kt_all_net,
             "SKT_순증MNO": skt_mno_net, "LGU+_순증MNO": lgu_mno_net,
+            "KT_순증MVNO": kt_mvno_net, "SKT_순증MVNO": skt_mvno_net, "LGU+_순증MVNO": lgu_mvno_net,
+            "SKT_순증전체": skt_all_net, "LGU+_순증전체": lgu_all_net,
             # 개별 유입/이탈
             "KT←SKT": kt_from_skt, "KT←LGU": kt_from_lgu, "KT←MVNO": kt_from_mv,
             "SKT←KT": skt_from_kt, "LGU←KT": lgu_from_kt, "MVNO←KT": mv_from_kt,
+            "SKT←LGU": skt_from_lgu, "LGU←SKT": lgu_from_skt,
+            "SKT←MVNO": skt_from_mv, "LGU←MVNO": lgu_from_mv,
+            "MVNO←SKT": mv_from_skt, "MVNO←LGU": mv_from_lgu,
         })
         records.append(rec)
     _ktoa_cache = records
@@ -410,7 +670,9 @@ async def lifespan(app_):
         for fname, loader in [
             ("sales.xlsx", _load_sales), ("commission.xlsx", _load_commission),
             ("device.xlsx", _load_device), ("inventory.xlsx", _load_inventory),
-            ("subscriber.xlsx", _load_subscriber),
+            ("subscriber.xlsx", _load_subscriber), ("storesales.xlsx", _load_storesales),
+            ("subsidy.xlsx", _load_subsidy), ("targets.xlsx", _load_targets),
+            ("business_days.xlsx", _load_business_days),
         ]:
             path = os.path.join(DATA_DIR, fname)
             if os.path.exists(path):
@@ -425,20 +687,24 @@ async def lifespan(app_):
     yield
 
 def _migrate(engine):
-    with engine.connect() as conn:
-        for col_def in [
-            "foreigner VARCHAR DEFAULT ''",
-            "commission_policy_name VARCHAR DEFAULT ''",
-        ]:
-            col_name = col_def.split()[0]
+    def add_col(conn, table, col_def):
+        col_name = col_def.split()[0]
+        try:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col_def}"))
+            conn.commit()
+        except Exception:
             try:
-                conn.execute(text(f"ALTER TABLE {'commission' if col_name=='commission_policy_name' else 'sales'} ADD COLUMN IF NOT EXISTS {col_def}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_def}"))
                 conn.commit()
             except Exception:
-                try:
-                    conn.execute(text(f"ALTER TABLE {'commission' if col_name=='commission_policy_name' else 'sales'} ADD COLUMN {col_def}"))
-                    conn.commit()
-                except Exception: pass
+                pass
+    with engine.connect() as conn:
+        add_col(conn, Sales.__tablename__, "foreigner VARCHAR DEFAULT ''")
+        add_col(conn, Sales.__tablename__, "new_sale INTEGER DEFAULT 0")
+        add_col(conn, Sales.__tablename__, "new010 INTEGER DEFAULT 0")
+        add_col(conn, Sales.__tablename__, "new_arpu FLOAT DEFAULT 0")
+        add_col(conn, Commission.__tablename__, "commission_policy_name VARCHAR DEFAULT ''")
+        add_col(conn, DeviceSales.__tablename__, "new_sale INTEGER DEFAULT 0")
 
 Base.metadata.create_all(bind=engine)
 _migrate(engine)
@@ -488,6 +754,43 @@ async def upload_subscriber(file: UploadFile = File(...)):
     try:
         db = SessionLocal(); _load_subscriber(db, contents)
         return {"status":"성공"}
+    except Exception as e: return {"status":"실패","error":str(e)}
+    finally: db.close()
+
+
+@app.post("/upload/storesales")
+async def upload_storesales(file: UploadFile = File(...)):
+    contents = await file.read()
+    try:
+        db = SessionLocal(); _load_storesales(db, contents)
+        return {"status":"성공","rows":int(db.query(func.count(StoreSales.id)).scalar() or 0)}
+    except Exception as e: return {"status":"실패","error":str(e)}
+    finally: db.close()
+
+@app.post("/upload/subsidy")
+async def upload_subsidy(file: UploadFile = File(...)):
+    contents = await file.read()
+    try:
+        db = SessionLocal(); _load_subsidy(db, contents)
+        return {"status":"성공","rows":int(db.query(func.count(CommonSubsidy.id)).scalar() or 0)}
+    except Exception as e: return {"status":"실패","error":str(e)}
+    finally: db.close()
+
+@app.post("/upload/targets")
+async def upload_targets(file: UploadFile = File(...)):
+    contents = await file.read()
+    try:
+        db = SessionLocal(); _load_targets(db, contents)
+        return {"status":"성공","rows":int(db.query(func.count(SalesTarget.id)).scalar() or 0)}
+    except Exception as e: return {"status":"실패","error":str(e)}
+    finally: db.close()
+
+@app.post("/upload/business-days")
+async def upload_business_days(file: UploadFile = File(...)):
+    contents = await file.read()
+    try:
+        db = SessionLocal(); _load_business_days(db, contents)
+        return {"status":"성공","rows":int(db.query(func.count(BusinessDay.id)).scalar() or 0)}
     except Exception as e: return {"status":"실패","error":str(e)}
     finally: db.close()
 
@@ -594,9 +897,16 @@ async def get_summary(
         def sc(q,col): return int(q.with_entities(func.sum(col)).scalar() or 0)
         total_rev = float(base.with_entities(func.sum(Sales.revenue)).scalar() or 0)
         total_sub = sc(base, Sales.subscriber)
+        total_new_sale = sc(base, Sales.new_sale) or sc(base, Sales.new_sub)
+        total_new010 = sc(base, Sales.new010)
+        if total_new010 == 0 and total_new_sale > 0:
+            total_new010 = max(0, total_new_sale - sc(base, Sales.mnp))
+        total_new_arpu_num = float(base.with_entities(func.sum(Sales.new_arpu * Sales.new_sale)).scalar() or 0)
         totals = {
             "sale":sc(base,Sales.sale_count),"subscriber":total_sub,
-            "new_sub":sc(base,Sales.new_sub),"mnp":sc(base,Sales.mnp),
+            "new_sub":total_new_sale,"new_sale":total_new_sale,"n010":total_new010,"new010":total_new010,
+            "new_arpu":round(total_new_arpu_num/total_new_sale) if total_new_sale>0 and total_new_arpu_num>0 else (round(total_rev/total_sub) if total_sub>0 else 0),
+            "mnp":sc(base,Sales.mnp),
             "smnp":sc(base,Sales.smnp),"lmnp":sc(base,Sales.lmnp),
             "mmnp":sc(base,Sales.mmnp),"vmnp":sc(base,Sales.vmnp),
             "churn":sc(base,Sales.churn),"mnp_churn":sc(base,Sales.mnp_churn),
@@ -640,19 +950,23 @@ async def get_summary(
             func.sum(Sales.churn),func.sum(Sales.mnp_churn),
             func.sum(Sales.mmnp_churn),func.sum(Sales.vmnp_churn),
             func.sum(Sales.premium_change),func.sum(Sales.revenue),
-            func.count(func.distinct(Sales.agency)),
+            func.count(func.distinct(Sales.agency)), func.sum(Sales.new_sale), func.sum(Sales.new010),
+            func.sum(Sales.new_arpu * Sales.new_sale),
         )).filter(Sales.bonbu!="",Sales.bonbu!="nan").group_by(Sales.bonbu)\
           .having(func.sum(Sales.sale_count)>=MIN_BONBU)\
           .order_by(func.sum(Sales.sale_count).desc()).all():
             sale=int(r[1] or 0); sub=int(r[2] or 0); rev=float(r[14] or 0); nm=r[0]
-            new_s=int(r[3] or 0); churn_s=int(r[9] or 0)
+            new_s=int(r[16] or 0) or int(r[3] or 0); n010_s=int(r[17] or 0) or max(0, new_s-int(r[4] or 0)); churn_s=int(r[9] or 0)
+            new_arpu_num=float(r[18] or 0)
             used_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.sale_type.like("%중고%")).scalar() or 0)
             kids_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.kids=="키즈").scalar() or 0)
             foreign_cnt = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.foreigner=="외국인").scalar() or 0)
             k110_cnt    = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.bonbu==nm,Sales.k110=="초이스").scalar() or 0)
             bonbu_detail.append({
                 "name":nm,"sale":sale,"sub":sub,
-                "new_sub":new_s,"mnp":int(r[4] or 0),
+                "new_sub":new_s,"new_sale":new_s,"n010":n010_s,"new010":n010_s,
+                "new_arpu":round(new_arpu_num/new_s) if new_s>0 and new_arpu_num>0 else (round(rev/sub) if sub>0 else 0),
+                "mnp":int(r[4] or 0),
                 "smnp":int(r[5] or 0),"lmnp":int(r[6] or 0),
                 "mmnp":int(r[7] or 0),"vmnp":int(r[8] or 0),
                 "churn":churn_s,"mnp_churn":int(r[10] or 0),
@@ -672,19 +986,23 @@ async def get_summary(
             func.sum(Sales.new_sub),func.sum(Sales.mnp),
             func.sum(Sales.mmnp),func.sum(Sales.vmnp),
             func.sum(Sales.churn),func.sum(Sales.premium_change),func.sum(Sales.revenue),
+            func.sum(Sales.new_sale),func.sum(Sales.new010),func.sum(Sales.new_arpu * Sales.new_sale),
         )).filter(Sales.channel_sub!="",Sales.channel_sub!="nan")\
           .group_by(Sales.channel_sub).order_by(func.sum(Sales.sale_count).desc()).all():
             sale=int(r[1] or 0); sub=int(r[2] or 0); rev=float(r[9] or 0); nm=r[0]
+            new_s=int(r[10] or 0) or int(r[3] or 0); n010_s=int(r[11] or 0) or max(0, new_s-int(r[4] or 0)); new_arpu_num=float(r[12] or 0)
             normal=int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.channel_sub==nm,Sales.sale_type.like("%일반%")).scalar() or 0)
             used  =int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.channel_sub==nm,Sales.sale_type.like("%중고%")).scalar() or 0)
             channel_detail.append({
                 "name":nm,"sale":sale,"sub":sub,
-                "new_sub":int(r[3] or 0),"mnp":int(r[4] or 0),
+                "new_sub":new_s,"new_sale":new_s,"n010":n010_s,"new010":n010_s,
+                "new_arpu":round(new_arpu_num/new_s) if new_s>0 and new_arpu_num>0 else (round(rev/sub) if sub>0 else 0),
+                "mnp":int(r[4] or 0),
                 "mmnp":int(r[5] or 0),"vmnp":int(r[6] or 0),
                 "churn":int(r[7] or 0),"premium":int(r[8] or 0),
                 "revenue":rev,"arpu":round(rev/sub) if sub>0 else 0,
                 "normal":normal,"used":used,
-                "net":int(r[3] or 0)-int(r[7] or 0),
+                "net":new_s-int(r[7] or 0),
             })
 
         agency_detail = []
@@ -694,17 +1012,21 @@ async def get_summary(
             func.sum(Sales.new_sub),func.sum(Sales.mnp),
             func.sum(Sales.mmnp),func.sum(Sales.vmnp),
             func.sum(Sales.premium_change),func.sum(Sales.churn),func.sum(Sales.revenue),
+            func.sum(Sales.new_sale),func.sum(Sales.new010),func.sum(Sales.new_arpu * Sales.new_sale),
         )).filter(Sales.agency!="",Sales.agency!="nan")\
           .group_by(Sales.agency,Sales.bonbu)\
           .order_by(func.sum(Sales.sale_count).desc()).limit(30).all():
             sub=int(r[3] or 0); rev=float(r[10] or 0)
+            new_s=int(r[11] or 0) or int(r[4] or 0); n010_s=int(r[12] or 0) or max(0, new_s-int(r[5] or 0)); new_arpu_num=float(r[13] or 0)
             agency_detail.append({
                 "name":r[0],"bonbu":r[1],"sale":int(r[2] or 0),"sub":sub,
-                "new_sub":int(r[4] or 0),"mnp":int(r[5] or 0),
+                "new_sub":new_s,"new_sale":new_s,"n010":n010_s,"new010":n010_s,
+                "new_arpu":round(new_arpu_num/new_s) if new_s>0 and new_arpu_num>0 else (round(rev/sub) if sub>0 else 0),
+                "mnp":int(r[5] or 0),
                 "mmnp":int(r[6] or 0),"vmnp":int(r[7] or 0),
                 "premium":int(r[8] or 0),"churn":int(r[9] or 0),
                 "revenue":rev,"arpu":round(rev/sub) if sub>0 else 0,
-                "net":int(r[4] or 0)-int(r[9] or 0),
+                "net":new_s-int(r[9] or 0),
             })
 
         all_agency = [{"name":r[0],"value":int(r[1] or 0)}
@@ -724,14 +1046,18 @@ async def get_summary(
             func.sum(Sales.new_sub), func.sum(Sales.mnp),
             func.sum(Sales.mmnp), func.sum(Sales.vmnp),
             func.sum(Sales.churn), func.sum(Sales.premium_change),
-            func.sum(Sales.revenue),
+            func.sum(Sales.revenue), func.sum(Sales.new_sale), func.sum(Sales.new010),
+            func.sum(Sales.new_arpu * Sales.new_sale),
         )).filter(Sales.team!="",Sales.team!="nan").group_by(Sales.team)          .order_by(func.sum(Sales.sale_count).desc()).all():
             nm=r[0]; sale=int(r[1] or 0); sub=int(r[2] or 0); rev=float(r[9] or 0)
-            new_s=int(r[3] or 0); churn_s=int(r[7] or 0)
+            new_s=int(r[10] or 0) or int(r[3] or 0); n010_s=int(r[11] or 0) or max(0, new_s-int(r[4] or 0)); churn_s=int(r[7] or 0)
+            new_arpu_num=float(r[12] or 0)
             choice_cnt = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.team==nm,Sales.k110=="초이스").scalar() or 0)
             team_detail.append({
                 "name":nm,"sale":sale,"sub":sub,
-                "new_sub":new_s,"mnp":int(r[4] or 0),
+                "new_sub":new_s,"new_sale":new_s,"n010":n010_s,"new010":n010_s,
+                "new_arpu":round(new_arpu_num/new_s) if new_s>0 and new_arpu_num>0 else (round(rev/sub) if sub>0 else 0),
+                "mnp":int(r[4] or 0),
                 "mmnp":int(r[5] or 0),"vmnp":int(r[6] or 0),
                 "churn":churn_s,"premium":int(r[8] or 0),
                 "revenue":rev,"arpu":round(rev/sub) if sub>0 else 0,
@@ -764,22 +1090,22 @@ async def get_summary(
 
         def dev_by_mm(mm):
             if not mm: return {}
-            return {r[0]:int(r[1] or 0) for r in
-                db.query(DeviceSales.model_name,func.sum(DeviceSales.sale_count))
+            return {r[0]:{"sale":int(r[1] or 0),"new_sale":int(r[2] or 0)} for r in
+                db.query(DeviceSales.model_name,func.sum(DeviceSales.sale_count),func.sum(DeviceSales.new_sale))
                 .filter(DeviceSales.yyyymm==mm,DeviceSales.model_name!="",
                         DeviceSales.model_name!="nan",DeviceSales.model_name!="ㆍ값없음")
                 .group_by(DeviceSales.model_name).all()}
 
         cur_model=dev_by_mm(cur_mm); prev_model=dev_by_mm(prev_mm)
-        device_cur =sorted([{"name":k,"value":v} for k,v in cur_model.items() if v>0],key=lambda x:-x["value"])[:30]
-        device_prev=sorted([{"name":k,"value":v} for k,v in prev_model.items() if v>0],key=lambda x:-x["value"])[:30]
+        device_cur =sorted([{"name":k,"value":v["sale"],"new_sale":v.get("new_sale",0)} for k,v in cur_model.items() if v["sale"]>0],key=lambda x:-x["value"])[:30]
+        device_prev=sorted([{"name":k,"value":v["sale"],"new_sale":v.get("new_sale",0)} for k,v in prev_model.items() if v["sale"]>0],key=lambda x:-x["value"])[:30]
 
         WORKING_DAYS=21
         inv_data=[]
         for r in db.query(Inventory.model_name,Inventory.total,Inventory.jisa,
                           Inventory.youngi,Inventory.strategy,Inventory.mns,Inventory.ktshop).all():
             if not r[0] or r[0] in ("","nan","ㆍ값없음"): continue
-            cs=cur_model.get(r[0],0); ps=prev_model.get(r[0],0)
+            cs=cur_model.get(r[0],{}).get("sale",0); ps=prev_model.get(r[0],{}).get("sale",0)
             # 일평균: 현월 판매량 기준, 없으면 전월 기준
             da=round(cs/WORKING_DAYS,1) if cs>0 else (round(ps/WORKING_DAYS,1) if ps>0 else 0)
             dl=round(r[1]/da) if da>0 else None
@@ -792,9 +1118,10 @@ async def get_summary(
                 "cur_sale":cs,"prev_sale":ps,"daily_avg":da,"days_left":dl,"mom":mom})
         # 판매는 있지만 재고 없는 단말도 추가 (재고 소진)
         inv_models = {d["model"] for d in inv_data}
-        for mn, cs in cur_model.items():
+        for mn, cv in cur_model.items():
+            cs = cv.get("sale",0)
             if cs > 0 and mn not in inv_models:
-                ps = prev_model.get(mn, 0)
+                ps = prev_model.get(mn, {}).get("sale", 0)
                 mom = round((cs-ps)/ps*100,1) if ps>0 else None
                 da = round(cs/WORKING_DAYS,1)
                 inv_data.append({"model":mn,"inventory":0,
@@ -1049,6 +1376,77 @@ async def get_device_hierarchy(
                 "mom": round((cnt-pv)/pv*100,1) if pv>0 else None
             })
         return {"items": items[:30], "cur_mm": cur_mm, "prev_mm": prev_mm}
+    finally:
+        db.close()
+
+
+@app.get("/api/store-sales")
+async def get_store_sales(
+    view: str = "store",
+    bonbu_list: List[str] = Query(default=[]),
+    team_list: List[str] = Query(default=[]),
+    agency: str = None,
+    channel_list: List[str] = Query(default=[]),
+    limit: int = 50,
+):
+    db = SessionLocal()
+    try:
+        col = StoreSales.store
+        if view == "bonbu": col = StoreSales.bonbu
+        elif view == "team": col = StoreSales.team
+        elif view == "agency": col = StoreSales.agency
+        elif view == "contact": col = StoreSales.contact
+        q = db.query(col, func.sum(StoreSales.sale), func.sum(StoreSales.new_sale),
+                     func.sum(StoreSales.new010), func.sum(StoreSales.mnp),
+                     func.sum(StoreSales.premium), func.sum(StoreSales.churn),
+                     func.sum(StoreSales.revenue), func.avg(StoreSales.arpu))
+        if bonbu_list: q = q.filter(StoreSales.bonbu.in_(bonbu_list))
+        if team_list: q = q.filter(StoreSales.team.in_(team_list))
+        if agency: q = q.filter(StoreSales.agency==agency)
+        if channel_list: q = q.filter(StoreSales.channel.in_(channel_list))
+        rows = q.filter(col!="", col!="nan").group_by(col).order_by(func.sum(StoreSales.sale).desc()).limit(limit).all()
+        items=[]
+        for r in rows:
+            sale=int(r[1] or 0); new_sale=int(r[2] or 0); churn=int(r[6] or 0); rev=float(r[7] or 0)
+            items.append({"name":r[0],"sale":sale,"new_sale":new_sale,"new_sub":new_sale,
+                          "n010":int(r[3] or 0),"new010":int(r[3] or 0),"mnp":int(r[4] or 0),
+                          "premium":int(r[5] or 0),"churn":churn,"net":new_sale-churn,
+                          "revenue":rev,"arpu":round(float(r[8] or 0))})
+        totals={"sale":sum(i["sale"] for i in items),"new_sale":sum(i["new_sale"] for i in items),
+                "n010":sum(i["n010"] for i in items),"mnp":sum(i["mnp"] for i in items),
+                "premium":sum(i["premium"] for i in items),"churn":sum(i["churn"] for i in items)}
+        totals["net"] = totals["new_sale"] - totals["churn"]
+        return {"view":view,"items":items,"totals":totals}
+    finally:
+        db.close()
+
+@app.get("/api/subsidy")
+async def get_subsidy(model: str = None, carrier: str = None, limit: int = 200):
+    db = SessionLocal()
+    try:
+        q = db.query(CommonSubsidy)
+        if model: q = q.filter(CommonSubsidy.model_name.like(f"%{model}%"))
+        if carrier: q = q.filter(CommonSubsidy.carrier==carrier)
+        rows = q.order_by(CommonSubsidy.ref_date.desc(), CommonSubsidy.amount.desc()).limit(limit).all()
+        return {"items":[{"date":r.ref_date,"model":r.model_name,"code":r.model_code,
+                           "carrier":r.carrier,"join_type":r.join_type,"channel":r.channel,
+                           "plan_group":r.plan_group,"amount":r.amount} for r in rows]}
+    finally:
+        db.close()
+
+@app.get("/api/forecast")
+async def get_forecast(yyyymm: str = None):
+    db = SessionLocal()
+    try:
+        if not yyyymm:
+            yyyymm = db.query(func.max(BusinessDay.yyyymm)).scalar() or ""
+        bd = db.query(BusinessDay).filter(BusinessDay.yyyymm==yyyymm).first()
+        elapsed = bd.elapsed_days if bd and bd.elapsed_days else 0
+        total = bd.total_days if bd and bd.total_days else 0
+        cur_sale = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        forecast = round(cur_sale / elapsed * total) if elapsed > 0 and total > 0 else cur_sale
+        return {"yyyymm":yyyymm,"elapsed_days":elapsed,"total_days":total,
+                "current_sale":cur_sale,"month_forecast_sale":forecast}
     finally:
         db.close()
 
