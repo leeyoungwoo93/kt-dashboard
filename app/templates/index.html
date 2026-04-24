@@ -229,9 +229,14 @@ tr:hover td{background:#f0f8f8}
   <div class="ch">
     <div class="ct" id="mainChartTitle">본부별 판매 현황</div>
     <div class="cs" id="mainChartHint">클릭·체크→드릴다운</div>
-    <div style="display:flex;gap:5px;align-items:center;margin-left:auto">
-      <button class="rst" onclick="openGoalModal()" style="font-size:9px">🎯 목표 설정</button>
-      <span id="goalBadge2" style="font-size:9px;color:var(--t1);font-weight:700;margin-left:4px"></span>
+    <div style="display:flex;gap:4px;align-items:center;margin-left:auto;flex-wrap:wrap">
+      <div style="display:flex;gap:2px">
+        <button class="dev-lv-btn active" id="mainView_sale" onclick="setMainChartView('sale')" style="font-size:8px">📊 판매구조</button>
+        <button class="dev-lv-btn" id="mainView_churn" onclick="setMainChartView('churn')" style="font-size:8px">📉 해지</button>
+        <button class="dev-lv-btn" id="mainView_net" onclick="setMainChartView('net')" style="font-size:8px">📈 순증</button>
+      </div>
+      <button class="rst" onclick="openGoalModal()" style="font-size:9px">🎯 목표</button>
+      <span id="goalBadge2" style="font-size:9px;color:var(--t1);font-weight:700"></span>
     </div>
   </div>
   <canvas id="mainChart"></canvas>
@@ -333,10 +338,17 @@ tr:hover td{background:#f0f8f8}
       <button class="dev-lv-btn" onclick="filterDevBrand('apple')" id="dlvApple">애플</button>
     </div>
   </div>
-  <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
-    <span style="font-size:8px;color:var(--muted)">드릴다운:</span>
-    <button class="dev-drill-btn active" id="ddrRoot" onclick="resetDevDrill()">📂 전체</button>
-    <span id="ddrBreadcrumb" style="font-size:9px;color:var(--t1)"></span>
+  <div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-top:4px">
+    <span style="font-size:8px;color:var(--muted)">단말그룹:</span>
+    <button class="dev-drill-btn active" id="ddrRoot" onclick="resetDevDrill()" style="font-size:8px;padding:2px 7px">📂 전체</button>
+    <button class="dev-group-btn" data-group="S26류" onclick="setDevGroupMode('S26류')" style="font-size:8px;background:#e6f5e6;border:1px solid var(--t1);border-radius:4px;padding:2px 6px;cursor:pointer;color:var(--t1);font-weight:700">S26류</button>
+    <button class="dev-group-btn" data-group="S25류" onclick="setDevGroupMode('S25류')" style="font-size:8px;background:#f0f8f0;border:1px solid var(--t2);border-radius:4px;padding:2px 6px;cursor:pointer;color:var(--t2)">S25류</button>
+    <button class="dev-group-btn" data-group="iPhone17류" onclick="setDevGroupMode('iPhone17류')" style="font-size:8px;background:#f0f0ff;border:1px solid #7048e8;border-radius:4px;padding:2px 6px;cursor:pointer;color:#7048e8">iPhone17류</button>
+    <button class="dev-group-btn" data-group="iPhone16류" onclick="setDevGroupMode('iPhone16류')" style="font-size:8px;background:#f8f0ff;border:1px solid #ae3ec9;border-radius:4px;padding:2px 6px;cursor:pointer;color:#ae3ec9">iPhone16류</button>
+    <button class="dev-group-btn" data-group="Z Fold류" onclick="setDevGroupMode('Z Fold류')" style="font-size:8px;background:#fff3e0;border:1px solid #e67700;border-radius:4px;padding:2px 6px;cursor:pointer;color:#e67700">Z Fold류</button>
+    <button class="dev-group-btn" data-group="Z Flip류" onclick="setDevGroupMode('Z Flip류')" style="font-size:8px;background:#fff9e0;border:1px solid #f08c00;border-radius:4px;padding:2px 6px;cursor:pointer;color:#f08c00">Z Flip류</button>
+    <button class="dev-group-btn" data-group="보급형" onclick="setDevGroupMode('보급형')" style="font-size:8px;background:#f5f5f5;border:1px solid #868e96;border-radius:4px;padding:2px 6px;cursor:pointer;color:#555">보급형</button>
+    <span id="ddrBreadcrumb" style="font-size:9px;color:var(--t1);font-weight:700;margin-left:4px"></span>
   </div>
 </div></div><canvas id="deviceChart"></canvas></div>
     <div class="card"><div class="ch">
@@ -1034,16 +1046,64 @@ async function updateDrillCharts(){
     document.getElementById('subChartHint').textContent='';
     document.getElementById('col0hdr').textContent='담당·지사';
     document.getElementById('detailTableTitle').textContent='담당·지사별 종합 실적';
-    barV('mainChart',items.map(x=>({n:x.name,v:x.sale})),{onClick:n=>drillDown(n,'team')});
-    // 담당별 ARPU - barH가 아닌 판매량 순서 유지하며 ARPU 표시
+    // 담당별: 스택바 (010/MMNP/VMNP/기변) + ARPU 보조선
+    dc('mainChart');const mEl2=document.getElementById('mainChart');if(mEl2){
+      const totals2=items.map(x=>x.sale||1);
+      const maxT2=Math.max(...totals2,1);
+      charts['mainChart']=new Chart(mEl2,{type:'bar',
+        data:{labels:items.map(x=>x.name),datasets:[
+          {label:'010신규',data:items.map(x=>x.new_sub||0),backgroundColor:T2+'dd',stack:'s',borderRadius:0,
+            datalabels:{display:true,color:'#fff',font:{size:6,weight:'bold'},
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`0 ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+              ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+          {label:'M.MNP',data:items.map(x=>x.mmnp||0),backgroundColor:BLU+'dd',stack:'s',borderRadius:0,
+            datalabels:{display:true,color:'#fff',font:{size:6,weight:'bold'},
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`MM ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+              ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+          {label:'V.MNP',data:items.map(x=>x.vmnp||0),backgroundColor:'#a9e34b',stack:'s',borderRadius:0,
+            datalabels:{display:true,color:'#555',font:{size:6,weight:'bold'},
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`VM ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+              ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+          {label:'기변',data:items.map(x=>x.premium||0),backgroundColor:AMB+'dd',stack:'s',borderRadius:0,
+            datalabels:{display:true,color:'#fff',font:{size:6,weight:'bold'},
+              formatter:(v,ctx)=>{const t=totals2[ctx.dataIndex]||1;return v>=t*0.05?`기 ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+              ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+          {label:'합계',data:totals2,backgroundColor:'transparent',stack:'s',
+            datalabels:{display:true,color:T1,font:{size:7,weight:'bold'},
+              formatter:v=>fmt(v),anchor:'end',align:'top',offset:2}},
+          {label:'ARPU',data:items.map(x=>x.arpu||0),type:'line',borderColor:RED,backgroundColor:'transparent',
+            pointRadius:3,pointBackgroundColor:RED,borderWidth:2,yAxisID:'y2',tension:.3,
+            datalabels:{display:true,color:RED,font:{size:7},formatter:v=>fmt(v),anchor:'end',align:'top',offset:4}},
+        ]},
+        options:{responsive:true,
+          onClick:(_,els)=>{if(els.length)drillDown(items[els[0].index]?.name,'team');},
+          plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:3,boxWidth:7,
+            filter:(item)=>item.datasetIndex!==4}},
+            tooltip:{callbacks:{afterBody:(items2)=>{const x=items[items2[0].dataIndex];const t=x.sale||1;
+              return[`총 ${fmt(x.sale)}`,`010: ${fmt(x.new_sub||0)}(${Math.round((x.new_sub||0)/t*100)}%)`,
+                `M.MNP: ${fmt(x.mmnp||0)}(${Math.round((x.mmnp||0)/t*100)}%)`,
+                `V.MNP: ${fmt(x.vmnp||0)}(${Math.round((x.vmnp||0)/t*100)}%)`,
+                `기변: ${fmt(x.premium||0)}(${Math.round((x.premium||0)/t*100)}%)`,
+                `해지: ${fmt(x.churn||0)}`];}}}},
+          scales:{y:{beginAtZero:true,stacked:true,ticks:{font:{size:7}},grid:{color:'#f5f5f5'}},
+            y2:{position:'right',beginAtZero:false,ticks:{font:{size:7},callback:v=>fmt(v)},grid:{display:false}},
+            x:{stacked:true,ticks:{font:{size:7},maxRotation:25},grid:{display:false}}}}});
+    }
+    // 서브차트: 순증 바
     dc('subChart');const subEl=document.getElementById('subChart');if(subEl){
       charts['subChart']=new Chart(subEl,{type:'bar',
         data:{labels:items.map(x=>x.name),datasets:[
-          {label:'ARPU',data:items.map(x=>x.arpu),backgroundColor:items.map(x=>x.arpu>60000?T1+'cc':x.arpu>50000?T2+'cc':AMB+'cc'),borderRadius:3,indexAxis:'y',
-            datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},formatter:v=>fmt(v),anchor:'center',align:'center',clamp:true}}
+          {label:'순증',data:items.map(x=>x.net||0),
+            backgroundColor:items.map(x=>(x.net||0)>=0?T1+'cc':RED+'cc'),borderRadius:3,
+            datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},
+              formatter:v=>`${v>=0?'+':''}${fmt(v)}`,anchor:'center',align:'center',clamp:true}}
         ]},
-        options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false}},
-          scales:{x:{beginAtZero:false,ticks:{font:{size:7},callback:v=>fmt(v)}},y:{ticks:{font:{size:7}}}}}}); 
+        options:{responsive:true,plugins:{legend:{display:false}},
+          scales:{x:{ticks:{font:{size:7}}},y:{beginAtZero:false,ticks:{font:{size:7}}}}}});
     }
   } else {
     document.getElementById('mainChartTitle').textContent='대리점 TOP20';
@@ -1116,90 +1176,199 @@ function renderTab(i){
 }
 
 // ─── TAB 0 ───
-let _mainView='sale'; // 'sale' | 'combo' | 'goal'
 let _goals={}; // {본부명: 목표수}
 try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
-
-function setMainView(v){
-  _mainView=v;
-  ['viewSale','viewCombo','viewGoal'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el)el.classList.toggle('active',id==='view'+v.charAt(0).toUpperCase()+v.slice(1));
-  });
-  if(D)renderMainChart(D);
-}
 
 function renderMainChart(d){
   const bd=d.bonbu_detail||[];
   const labels=bd.map(b=>b.name);
-  const actuals=bd.map(b=>b.sale);
   const goals=bd.map(b=>_goals[b.name]||0);
-  const arpus=bd.map(b=>b.arpu);
   const hasGoals=goals.some(g=>g>0);
-  // 달성률 뱃지 업데이트
   const achieved=bd.filter((b,i)=>goals[i]>0&&b.sale>=goals[i]).length;
   const total=bd.filter((_,i)=>goals[i]>0).length;
-  ['goalBadge','goalBadge2'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=total>0?`목표달성 ${achieved}/${total}본부`:''});
-  // 콤보차트: 판매(막대) + ARPU(선) + 목표(점선)
+  ['goalBadge','goalBadge2'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.textContent=total>0?`목표달성 ${achieved}/${total}본부`:'';
+  });
+
   dc('mainChart');const el=document.getElementById('mainChart');if(!el)return;
-  const maxB=Math.max(...actuals,1);
-  const datasets=[
-    {label:'판매량',data:actuals,backgroundColor:actuals.map((v,i)=>hasGoals&&goals[i]>0?(v>=goals[i]?T1+'cc':AMB+'cc'):TEAL[i%TEAL.length]),borderRadius:3,yAxisID:'y',
-      datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},formatter:v=>v>=maxB*0.15?fmt(v):'',anchor:'center',align:'center',clamp:true}},
-    {label:'ARPU',data:arpus,type:'line',borderColor:AMB,backgroundColor:'transparent',pointRadius:3,pointBackgroundColor:AMB,borderWidth:2,yAxisID:'y2',tension:.3,
-      datalabels:{display:true,color:AMB,font:{size:7,weight:'bold'},formatter:v=>fmt(v),anchor:'end',align:'top',offset:3}},
-  ];
-  if(hasGoals){
-    datasets.push({label:'목표',data:goals,type:'line',borderColor:RED,backgroundColor:'transparent',borderDash:[5,3],pointRadius:4,pointBackgroundColor:RED,borderWidth:2,yAxisID:'y',
-      datalabels:{display:true,color:RED,font:{size:7,weight:'bold'},formatter:v=>v>0?fmt(v):'',anchor:'start',align:'bottom',offset:4}});
+
+  if(_mainChartView==='churn'){
+    // ─── 해지 뷰 ───
+    const churns=bd.map(b=>b.churn);
+    const mnpChurn=bd.map(b=>b.mnp_churn||0);
+    const mmnpChurn=bd.map(b=>b.mmnp_churn||0);
+    const vmnpChurn=bd.map(b=>b.vmnp_churn||0);
+    const forceChurn=bd.map(b=>Math.max(0,(b.churn||0)-(b.mnp_churn||0)));
+    const maxC=Math.max(...churns,1);
+    charts['mainChart']=new Chart(el,{type:'bar',
+      data:{labels,datasets:[
+        {label:'강제해지/자연해지',data:forceChurn,backgroundColor:'#ff6b6b88',borderRadius:0,stack:'churn',
+          datalabels:{display:true,color:'#c0001a',font:{size:6,weight:'bold'},
+            formatter:(v,ctx)=>{const c=churns[ctx.dataIndex];return c>=maxC*0.1?`강 ${fmt(v)}`:'';}
+            ,anchor:'end',align:'top'}},
+        {label:'S.MNP해지',data:bd.map(b=>b.smnp_churn||0),backgroundColor:'#ff9f4388',borderRadius:0,stack:'churn',datalabels:{display:false}},
+        {label:'L.MNP해지',data:bd.map(b=>b.lmnp_churn||0),backgroundColor:'#74c0fc88',borderRadius:0,stack:'churn',datalabels:{display:false}},
+        {label:'M.MNP해지',data:mmnpChurn,backgroundColor:'#a9e34b88',borderRadius:0,stack:'churn',datalabels:{display:false}},
+        {label:'V.MNP해지',data:vmnpChurn,backgroundColor:'#ffd43b88',borderRadius:0,stack:'churn',datalabels:{display:false}},
+        ...(hasGoals?[{label:'판매목표',data:goals,type:'line',borderColor:T1,borderDash:[5,3],backgroundColor:'transparent',pointRadius:3,borderWidth:1.5,yAxisID:'y',datalabels:{display:false}}]:[]),
+      ]},
+      options:{responsive:true,
+        onClick:(_,els)=>{if(els.length)drillDown(labels[els[0].index],'bonbu');},
+        plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}},
+          tooltip:{callbacks:{
+            afterBody:(items)=>{const b=bd[items[0].dataIndex];return[`총 해지: ${fmt(b.churn)}건`,`M.MNP해지: ${fmt(b.mmnp_churn||0)}건`,`V.MNP해지: ${fmt(b.vmnp_churn||0)}건`];}
+          }}},
+        scales:{y:{beginAtZero:true,stacked:true,ticks:{font:{size:8}},grid:{color:'#f0f0f0'}},
+                x:{ticks:{font:{size:8}},grid:{display:false}}}}});
+    return;
   }
-  charts['mainChart']=new Chart(el,{type:'bar',data:{labels,datasets},
+
+  if(_mainChartView==='net'){
+    // ─── 순증 뷰 ───
+    const nets=bd.map(b=>b.net||0);
+    const maxN=Math.max(...nets.map(Math.abs),1);
+    charts['mainChart']=new Chart(el,{type:'bar',
+      data:{labels,datasets:[
+        {label:'순증',data:nets,
+          backgroundColor:nets.map((v,i)=>{
+            if(hasGoals&&goals[i]>0)return v>=0?T1+'cc':RED+'cc';
+            return v>=0?T1+'cc':RED+'cc';
+          }),
+          borderRadius:3,
+          datalabels:{display:true,color:'#fff',font:{size:8,weight:'bold'},
+            formatter:(v,ctx)=>{
+              const b=bd[ctx.dataIndex];
+              const g=goals[ctx.dataIndex]||0;
+              const rate=g>0?Math.round(b.sale/g*100):null;
+              const rateStr=rate!==null?`
+${rate}%달성`:'';
+              return `${v>=0?'+':''}${fmt(v)}${rateStr}`;
+            },anchor:'center',align:'center',clamp:true}},
+        ...(hasGoals?[{label:'판매목표',data:goals,type:'line',borderColor:AMB,borderDash:[5,3],backgroundColor:'transparent',pointRadius:3,borderWidth:1.5,yAxisID:'y',
+          datalabels:{display:true,color:AMB,font:{size:7},formatter:v=>v>0?fmt(v)+'목표':'',anchor:'end',align:'top'}}]:[]),
+      ]},
+      options:{responsive:true,
+        onClick:(_,els)=>{if(els.length)drillDown(labels[els[0].index],'bonbu');},
+        plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}},
+          tooltip:{callbacks:{afterBody:(items)=>{const b=bd[items[0].dataIndex];return[`신규: ${fmt(b.new_sub)}건`,`해지: ${fmt(b.churn)}건`,`순증: ${b.net>=0?'+':''}${fmt(b.net)}건`];}}}},
+        scales:{y:{beginAtZero:false,ticks:{font:{size:8}},grid:{color:'#f0f0f0'}},
+                x:{ticks:{font:{size:8}},grid:{display:false}}}}});
+    return;
+  }
+
+  // ─── 판매구조 뷰 (기본) ─── 010 / M.MNP / V.MNP / 기변 스택바 + ARPU선
+  const n010=bd.map(b=>b.new_sub||0);  // 신규(010포함)
+  const mmnp=bd.map(b=>b.mmnp||0);
+  const vmnp=bd.map(b=>b.vmnp||0);
+  const prem=bd.map(b=>b.premium||0);
+  const arpus=bd.map(b=>b.arpu||0);
+  const totals=bd.map(b=>b.sale||0);
+  const maxT=Math.max(...totals,1);
+
+  // 스택 레이블: "0 123(32%)
+MM 45(12%)
+VM 23(6%)
+기 89(24%)"
+  const stackLabel=(ctx)=>{
+    const i=ctx.dataIndex; const b=bd[i]; const t=b.sale||1;
+    const n=b.new_sub||0, m=b.mmnp||0, v=b.vmnp||0, p=b.premium||0;
+    // 목표 달성률
+    const g=goals[i]||0;
+    const rateStr=g>0?` (${Math.round(b.sale/g*100)}%)`: '';
+    return `${fmt(b.sale)}${rateStr}
+0 ${fmt(n)}(${Math.round(n/t*100)}%)
+MM ${fmt(m)}(${Math.round(m/t*100)}%)
+VM ${fmt(v)}(${Math.round(v/t*100)}%)
+기 ${fmt(p)}(${Math.round(p/t*100)}%)`;
+  };
+
+  charts['mainChart']=new Chart(el,{type:'bar',
+    data:{labels,datasets:[
+      {label:'010신규',data:n010,backgroundColor:T2+'dd',stack:'sale',borderRadius:0,
+        datalabels:{display:true,color:'#fff',font:{size:6.5,weight:'bold'},
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`0 ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+          ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+      {label:'M.MNP',data:mmnp,backgroundColor:BLU+'dd',stack:'sale',borderRadius:0,
+        datalabels:{display:true,color:'#fff',font:{size:6.5,weight:'bold'},
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`MM ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+          ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+      {label:'V.MNP',data:vmnp,backgroundColor:'#a9e34b',stack:'sale',borderRadius:0,
+        datalabels:{display:true,color:'#555',font:{size:6.5,weight:'bold'},
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`VM ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+          ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+      {label:'기변',data:prem,backgroundColor:AMB+'dd',stack:'sale',borderRadius:0,
+        datalabels:{display:true,color:'#fff',font:{size:6.5,weight:'bold'},
+          formatter:(v,ctx)=>{const t=totals[ctx.dataIndex]||1;return v>=t*0.05?`기 ${fmt(v)}
+(${Math.round(v/t*100)}%)`:'';}
+          ,anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+      {label:'합계레이블',data:totals,backgroundColor:'transparent',stack:'sale',borderRadius:0,
+        datalabels:{display:true,color:'var(--t1)',font:{size:7,weight:'bold'},
+          formatter:(v,ctx)=>{const b=bd[ctx.dataIndex];const g=goals[ctx.dataIndex]||0;
+            return g>0?`${fmt(v)}
+▶${Math.round(b.sale/g*100)}%달성`:`${fmt(v)}`;}
+          ,anchor:'end',align:'top',offset:2}},
+      {label:'ARPU',data:arpus,type:'line',borderColor:RED,backgroundColor:'transparent',
+        pointRadius:3,pointBackgroundColor:RED,borderWidth:2,yAxisID:'y2',tension:.3,
+        datalabels:{display:true,color:RED,font:{size:7,weight:'bold'},
+          formatter:v=>fmt(v),anchor:'end',align:'top',offset:4}},
+      ...(hasGoals?[{label:'목표판매량',data:goals,type:'line',borderColor:'#555',
+        backgroundColor:'transparent',borderDash:[5,3],pointRadius:4,pointBackgroundColor:'#555',
+        borderWidth:2,yAxisID:'y',
+        datalabels:{display:false}}]:[]),
+    ]},
     options:{responsive:true,
-      onClick:(_,els)=>{if(els.length)drillDown(labels[els[0].index],'bonbu');},
-      plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}},
-        tooltip:{callbacks:{afterLabel:(ctx)=>{const b=bd[ctx.dataIndex];return b?`순증: ${b.net>=0?'+':''}${fmt(b.net)} | 해지율: ${((b.churn/(b.sale||1))*100).toFixed(1)}%`:'';}}}},
-      scales:{y:{beginAtZero:true,ticks:{font:{size:8}},grid:{color:'#f5f5f5'}},
-              y2:{position:'right',beginAtZero:false,ticks:{font:{size:8},callback:v=>fmt(v)},grid:{display:false}}}}});
+      onClick:(_,els)=>{
+        if(!els.length)return;
+        const di=els[0].datasetIndex;
+        if(di<5)drillDown(labels[els[0].index],'bonbu'); // 스택 레이어 클릭
+      },
+      plugins:{
+        legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8,
+          filter:(item)=>item.datasetIndex!==4}},  // 합계레이블 범례 숨김
+        tooltip:{callbacks:{
+          beforeBody:(items)=>{
+            const b=bd[items[0].dataIndex]; const g=goals[items[0].dataIndex]||0;
+            return g>0?`목표 ${fmt(g)} | 달성 ${Math.round(b.sale/g*100)}%`:'';
+          },
+          afterBody:(items)=>{
+            const b=bd[items[0].dataIndex]; const t=b.sale||1;
+            return [`총판매: ${fmt(b.sale)}`,
+              `010신규: ${fmt(b.new_sub)} (${Math.round((b.new_sub||0)/t*100)}%)`,
+              `M.MNP: ${fmt(b.mmnp)} (${Math.round((b.mmnp||0)/t*100)}%)`,
+              `V.MNP: ${fmt(b.vmnp)} (${Math.round((b.vmnp||0)/t*100)}%)`,
+              `기변: ${fmt(b.premium)} (${Math.round((b.premium||0)/t*100)}%)`,
+              `해지: ${fmt(b.churn)}`,`순증: ${b.net>=0?'+':''}${fmt(b.net)}`,];
+          }}}},
+      scales:{
+        y:{beginAtZero:true,stacked:true,ticks:{font:{size:8}},grid:{color:'#f5f5f5'}},
+        y2:{position:'right',beginAtZero:false,ticks:{font:{size:7},callback:v=>fmt(v)},grid:{display:false}},
+        x:{stacked:true,ticks:{font:{size:8}},grid:{display:false}}}}});
 }
 
-function openGoalModal(){
-  if(!D)return;
-  const area=document.getElementById('goalInputArea');
-  if(!area)return;
-  const bonbus=D.bonbu_detail.map(b=>b.name);
-  area.innerHTML=bonbus.map(nm=>`
-    <div class="calc-f">
-      <label>${nm}</label>
-      <input type="number" id="goal_${escQ(nm)}" placeholder="목표 판매수" value="${_goals[nm]||''}" style="font-size:11px">
-    </div>`).join('');
-  document.getElementById('goalModal').classList.add('open');
-}
-function closeGoalModal(){document.getElementById('goalModal').classList.remove('open');}
-function saveGoals(){
-  if(!D)return;
-  D.bonbu_detail.forEach(b=>{
-    const el=document.getElementById('goal_'+b.name.replace(/[^a-zA-Z0-9가-힣]/g,'_'));
-    const anyEl=document.querySelector(`#goalInputArea input[id^="goal_"]`);
-    // 이름 그대로 찾기
-    const inputs=document.querySelectorAll('#goalInputArea input');
-    const names=D.bonbu_detail.map(x=>x.name);
-    inputs.forEach((inp,i)=>{const v=parseInt(inp.value)||0;if(v>0)_goals[names[i]]=v;else delete _goals[names[i]];});
+let _mainChartView='sale';
+function setMainChartView(v){
+  _mainChartView=v;
+  ['sale','churn','net'].forEach(k=>{
+    document.getElementById('mainView_'+k)?.classList.toggle('active',k===v);
   });
-  try{localStorage.setItem('kt_goals',JSON.stringify(_goals));}catch(e){}
-  closeGoalModal();
-  setMainView('goal');
+  if(D)renderMainChart(D);
 }
-function resetGoals(){_goals={};try{localStorage.removeItem('kt_goals');}catch(e){}closeGoalModal();setMainView('sale');}
+
 
 function renderTab0(d){
   const t=d.totals,g=d.grand_totals,net=t.new_sub-t.churn;
+  const sale=t.sale||1;
   kpiRow('kpiRow0',[
-    {label:'총 판매량',val:fmt(t.sale),sub:t.sale!==g.sale?`전체의 ${pct(t.sale,g.sale)}`:'전체'},
-    {label:'신규가입',val:fmt(t.new_sub),sub:pct(t.new_sub,t.sale)},
-    {label:'M.MNP유입',val:fmt(t.mmnp),sub:'자사이동'},
-    {label:'V.MNP유입',val:fmt(t.vmnp),sub:'알뜰폰→KT'},
-    {label:'우수기변',val:fmt(t.premium),sub:pct(t.premium,t.sale)},
-    {label:'해지',val:fmt(t.churn),sub:pct(t.churn,t.sale),cls:'am'},
+    {label:'총 판매량',val:fmt(t.sale),sub:t.sale!==g.sale?`필터 ${pct(t.sale,g.sale)}`:'전체기간'},
+    {label:'010신규',val:fmt(t.new_sub),sub:`${Math.round((t.new_sub||0)/sale*100)}%`},
+    {label:'M.MNP',val:fmt(t.mmnp),sub:`${Math.round((t.mmnp||0)/sale*100)}% | 자사이동`},
+    {label:'V.MNP',val:fmt(t.vmnp),sub:`${Math.round((t.vmnp||0)/sale*100)}% | 알뜰→KT`},
+    {label:'기변',val:fmt(t.premium),sub:`${Math.round((t.premium||0)/sale*100)}%`},
+    {label:'해지',val:fmt(t.churn),sub:`${Math.round((t.churn||0)/sale*100)}%`,cls:'am'},
     {label:'순증',val:(net>=0?'+':'')+fmt(net),badge:net>=0?'순증':'순감',badgeCls:net>=0?'ok':'bad'},
     {label:'ARPU',val:fmt(t.arpu),sub:'원'},
   ]);
@@ -1211,19 +1380,35 @@ function renderTab0(d){
       const goal=_goals[b.name]||0;
       const rate=goal>0?Math.round(b.sale/goal*100):null;
       const rateColor=rate===null?'var(--muted)':rate>=100?T1:rate>=80?AMB:RED;
-      return `<tr><td>${i+1}</td><td style="font-weight:700;white-space:nowrap">${b.name}</td>
-        <td class="num">${fmt(b.sale)}</td><td class="num">${fmt(b.new_sub)}</td><td class="num">-</td>
-        <td class="num">${fmt(b.mmnp)}</td><td class="num">${fmt(b.vmnp)}</td>
-        <td class="num">${fmt(b.premium)}</td><td class="num">${fmt(b.churn)}</td>
+      const churnRate=b.churn/sale;
+      const mnpPct=Math.round((b.mmnp||0)/sale*100);
+      const vmnpPct=Math.round((b.vmnp||0)/sale*100);
+      const prem_pct=Math.round((b.premium||0)/sale*100);
+      // 가입구조 인라인 바
+      const structBar=`<div style="display:flex;height:5px;border-radius:2px;overflow:hidden;min-width:60px">
+        <div style="width:${Math.round((b.new_sub||0)/sale*100)}%;background:${T2}"></div>
+        <div style="width:${mnpPct}%;background:${BLU}"></div>
+        <div style="width:${vmnpPct}%;background:#a9e34b"></div>
+        <div style="width:${prem_pct}%;background:${AMB}"></div>
+      </div>`;
+      return `<tr><td>${i+1}</td>
+        <td style="font-weight:700;white-space:nowrap">${b.name}</td>
+        <td class="num" style="font-weight:700">${fmt(b.sale)}</td>
+        <td class="num" style="color:${T2}">${fmt(b.new_sub)}</td>
+        <td class="num">-</td>
+        <td class="num" style="color:${BLU}">${fmt(b.mmnp)}<small style="color:var(--muted);font-size:9px">(${mnpPct}%)</small></td>
+        <td class="num" style="color:#7cb305">${fmt(b.vmnp)}<small style="color:var(--muted);font-size:9px">(${vmnpPct}%)</small></td>
+        <td class="num" style="color:${AMB}">${fmt(b.premium)}<small style="color:var(--muted);font-size:9px">(${prem_pct}%)</small></td>
+        <td class="num" style="color:${churnRate>.4?RED:churnRate>.3?AMB:T1}">${fmt(b.churn)}</td>
         <td class="num" style="color:${b.net>=0?T1:RED};font-weight:700">${b.net>=0?'+':''}${fmt(b.net)}</td>
         <td class="num">${fmt(b.arpu)}</td>
         <td class="num">${b.live_sub?fmt(b.live_sub):'-'}</td>
         <td class="pct">${pctS(b.mnp,sale)}%</td>
-        <td class="pct" style="color:${b.churn/sale>.5?RED:b.churn/sale>.3?AMB:T1}">${pctS(b.churn,sale)}%</td>
+        <td class="pct" style="color:${churnRate>.4?RED:churnRate>.3?AMB:T1}">${pctS(b.churn,sale)}%</td>
         <td class="pct">${pctS(b.used_cnt||0,sale)}%</td>
         <td class="pct">${pctS(b.kids_cnt||0,sale)}%</td>
         <td class="pct">${pctS(b.foreign_cnt||0,sale)}%</td>
-        <td class="pct">${pctS(b.k110_cnt||0,sale)}%</td>
+        <td class="pct" style="font-weight:700;color:${pctN(b.k110_cnt||0,sale)>40?T1:AMB}">${pctS(b.k110_cnt||0,sale)}%</td>
         <td class="num" style="color:var(--muted)">${goal>0?fmt(goal):'-'}</td>
         <td class="pct" style="color:${rateColor};font-weight:700">${rate!==null?rate+'%':'-'}</td></tr>`;
     }).join('');
@@ -1517,6 +1702,37 @@ function renderTab4(d){
   }).join('');
 }
 
+
+// ─── 단말 그룹 정의 ───
+const DEV_GROUPS = {
+  'S26류':    ['갤럭시 S26', '갤럭시 S26 플러스', '갤럭시 S26 울트라'],
+  'S25류':    ['갤럭시 S25', '갤럭시 S25 플러스', '갤럭시 S25 Ultra', '갤럭시 S25 Edge', '갤럭시 S25 FE'],
+  'iPhone17류':['iPhone 17', 'iPhone 17 Pro', 'iPhone 17 Pro Max', 'iPhone 17e', 'iPhone Air'],
+  'iPhone16류':['iPhone 16', 'iPhone 16 Pro', 'iPhone 16 Pro Max', 'iPhone 16 Plus'],
+  'Z Fold류': ['갤럭시 Z Fold7', '갤럭시 Z Fold6'],
+  'Z Flip류': ['갤럭시 Z Flip7', '갤럭시 Z Flip7 FE', '갤럭시 Z Flip6'],
+  '보급형':   ['갤럭시 A36 5G', '갤럭시 A17', '갤럭시 A16', '갤럭시 A24'],
+  '키즈/폴더':['폼폼푸린 키즈폰', '시나모롤 키즈폰', '클래식 폴더', '갤럭시 Jump4', '맘편안폰S'],
+};
+
+let _devGroupMode = null; // null=전체, 'S26류' 등
+
+function setDevGroupMode(groupKey) {
+  if(_devGroupMode === groupKey) {
+    // 같은 버튼 재클릭 → 전체로
+    _devGroupMode = null;
+    document.querySelectorAll('.dev-group-btn').forEach(b=>b.classList.remove('active'));
+    document.getElementById('ddrBreadcrumb').textContent = '';
+  } else {
+    _devGroupMode = groupKey;
+    document.querySelectorAll('.dev-group-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.dev-group-btn').forEach(b=>{if(b.dataset.group===groupKey)b.classList.add('active');});
+    document.getElementById('ddrBreadcrumb').textContent = '▸ ' + groupKey;
+  }
+  _devFilter = null; // 드릴다운 초기화
+  renderDevChart();
+}
+
 // ─── 단말 드릴다운 헬퍼 ───
 let _devFilter = null; // 현재 드릴다운 필터 (null=전체)
 let _devBrand = 'all';
@@ -1524,16 +1740,24 @@ let _devData = null; // 현재 단말 데이터
 
 function filterDevBrand(brand){
   _devBrand=brand;
+  // 브랜드 필터 변경 시 그룹모드도 초기화
+  _devGroupMode=null;
+  _devFilter=null;
+  document.getElementById('ddrBreadcrumb').textContent='';
+  document.querySelectorAll('.dev-group-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.dev-lv-btn').forEach(b=>b.classList.remove('active'));
   const map={all:'dlvAll',samsung:'dlvSamsung',apple:'dlvApple'};
   document.getElementById(map[brand])?.classList.add('active');
+  document.getElementById('ddrRoot')?.classList.add('active');
   renderDevChart();
 }
 
 function resetDevDrill(){
   _devFilter=null;
+  _devGroupMode=null;
   document.getElementById('ddrBreadcrumb').textContent='';
-  document.getElementById('ddrRoot').classList.add('active');
+  document.getElementById('ddrRoot')?.classList.add('active');
+  document.querySelectorAll('.dev-group-btn').forEach(b=>b.classList.remove('active'));
   renderDevChart();
 }
 
@@ -1546,31 +1770,96 @@ function drillDevItem(name){
 
 function renderDevChart(){
   if(!_devData)return;
-  let da=(_devData.cur||[]).filter(x=>x.value>0);
-  const dp=_devData.prev||[];
-  const marMap=Object.fromEntries(dp.map(x=>[x.name,x.value]));
-
-  if(_devFilter) da=da.filter(x=>x.name.includes(_devFilter)||x.name.toUpperCase().includes(_devFilter.toUpperCase()));
-  if(_devBrand==='samsung') da=da.filter(x=>x.name.includes('갤럭시')||x.name.includes('Galaxy')||x.name.includes('폼폼')||x.name.includes('시나모')||x.name.includes('맘편'));
-  if(_devBrand==='apple') da=da.filter(x=>x.name.includes('iPhone')||x.name.includes('아이폰'));
-  da=da.slice(0,20);  // TOP20으로 확장
-
+  const allCur=_devData.cur||[];
+  const allPrev=_devData.prev||[];
   const cm=_devData.cur_mm||'', pm=_devData.prev_mm||'';
-  document.getElementById('devChartTitle').textContent=`단말 판매 TOP15 (${fmtMM(cm)})${_devFilter?' — '+_devFilter:''}`;
-  document.getElementById('devChartSub').textContent=`vs ${fmtMM(pm)}`;
+  const marMap=Object.fromEntries(allPrev.map(x=>[x.name,x.value]));
+
+  let da=[...allCur].filter(x=>x.value>0);
+
+  // 그룹 모드: 그룹 내 단말만 표시
+  if(_devGroupMode && DEV_GROUPS[_devGroupMode]){
+    const groupModels=DEV_GROUPS[_devGroupMode];
+    da=da.filter(x=>groupModels.includes(x.name));
+    document.getElementById('ddrBreadcrumb').textContent='▸ '+_devGroupMode+`(${da.length}종)`;
+  }
+  // 드릴필터 (재고 클릭 등)
+  else if(_devFilter){
+    da=da.filter(x=>x.name.includes(_devFilter));
+    document.getElementById('ddrBreadcrumb').textContent='▸ '+_devFilter;
+  }
+
+  // 브랜드 필터
+  if(_devBrand==='samsung') da=da.filter(x=>x.name.includes('갤럭시')||x.name.includes('폼폼')||x.name.includes('시나모')||x.name.includes('맘편')||x.name.includes('Jump'));
+  if(_devBrand==='apple')   da=da.filter(x=>x.name.includes('iPhone')||x.name.includes('아이폰'));
+
+  da=da.slice(0,20);
+
+  const title=_devGroupMode?`${_devGroupMode} 판매 (${fmtMM(cm)})`:
+    _devFilter?`"${_devFilter}" 포함 단말 (${fmtMM(cm)})`:
+    `단말 판매 TOP20 (${fmtMM(cm)})`;
+  document.getElementById('devChartTitle').textContent=title;
+  document.getElementById('devChartSub').textContent=`vs ${fmtMM(pm)} | 클릭→드릴다운`;
+
+  if(!da.length){
+    dc('deviceChart');
+    document.getElementById('devChartTitle').textContent='해당 조건의 단말 없음';
+    return;
+  }
 
   const maxV=Math.max(...da.map(x=>x.value),1);
   dc('deviceChart');const dEl=document.getElementById('deviceChart');if(!dEl)return;
   charts['deviceChart']=new Chart(dEl,{type:'bar',
     data:{labels:da.map(x=>x.name),datasets:[
-      {label:fmtMM(cm),data:da.map(x=>x.value),backgroundColor:TEAL.slice(0,da.length),borderRadius:3,
-        datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},formatter:v=>v>=maxV*0.2?fmt(v):'',anchor:'center',align:'center',clamp:true},
-        onClick:(_,els)=>{if(els.length)drillDevItem(da[els[0].index].name);}},
-      {label:fmtMM(pm),data:da.map(x=>marMap[x.name]||0),backgroundColor:'#aaaaaa66',borderRadius:3,datalabels:{display:false}}]},
+      {label:fmtMM(cm),data:da.map(x=>x.value),
+        backgroundColor:da.map((x,i)=>{
+          const prev=marMap[x.name]||0;
+          if(prev===0)return TEAL[i%TEAL.length];
+          const chg=(x.value-prev)/prev;
+          return chg>0.1?T1+'ee':chg<-0.1?RED+'aa':T2+'cc';
+        }),
+        borderRadius:3,
+        datalabels:{display:true,color:'#fff',font:{size:7,weight:'bold'},
+          formatter:(v,ctx)=>{
+            const prev=marMap[da[ctx.dataIndex].name]||0;
+            const chg=prev>0?((v-prev)/prev*100).toFixed(0):'new';
+            return v>=maxV*0.05?`${fmt(v)}
+(${chg==='new'?'신규':chg+'%'})`:v>=maxV*0.02?fmt(v):'';
+          },anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+      {label:fmtMM(pm),data:da.map(x=>marMap[x.name]||0),
+        backgroundColor:'#aaaaaa55',borderRadius:3,
+        datalabels:{display:false}},
+    ]},
     options:{responsive:true,
-      onClick:(_,els)=>{if(els.length&&els[0].datasetIndex===0)drillDevItem(da[els[0].index].name);},
-      plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}},tooltip:{callbacks:{afterTitle:()=>'클릭 → 상세 드릴다운'}}},
-      scales:{x:{ticks:{font:{size:7},maxRotation:35},grid:{display:false}},y:{beginAtZero:true,display:false}}}});
+      onClick:(_,els)=>{
+        if(!els.length)return;
+        const name=da[els[0].index]?.name;
+        if(!name)return;
+        // 현재 그룹모드면 해당 단말 필터로 드릴다운
+        if(_devGroupMode){
+          _devFilter=name;
+          _devGroupMode=null;
+          document.querySelectorAll('.dev-group-btn').forEach(b=>b.classList.remove('active'));
+          document.getElementById('ddrBreadcrumb').textContent='▸ '+name;
+          renderDevChart();
+        } else {
+          drillDevItem(name);
+        }
+      },
+      plugins:{
+        legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}},
+        tooltip:{callbacks:{
+          afterTitle:(items)=>{
+            const x=da[items[0].dataIndex];
+            const prev=marMap[x.name]||0;
+            const chg=prev>0?((x.value-prev)/prev*100).toFixed(1):'신규';
+            return `전월 ${prev>0?fmt(prev):'-'} | MoM ${chg==='신규'?'신규':chg+'%'}`;
+          },
+          afterBody:()=>['클릭: 해당 단말 필터']
+        }}},
+      scales:{
+        x:{ticks:{font:{size:7},maxRotation:30},grid:{display:false}},
+        y:{beginAtZero:true,ticks:{font:{size:7}},grid:{color:'#f5f5f5'}}}}});
 }
 
 // ─── TAB 5 ───
@@ -2541,7 +2830,7 @@ function renderTab9(){
 }
 
 // ─── 업데이트 알림 시스템 ───
-const DASHBOARD_VERSION='2026-04-23-v5';
+const DASHBOARD_VERSION='2026-04-23-v6';
 const UPDATE_LOG=[
   {version:'2026-04-23-v3',date:'2026-04-23',changes:[
     '✅ ⑨ 가입자분석 탭 신설 (유지가입자 변동·추이·구분별 분석)',
