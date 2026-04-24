@@ -480,6 +480,7 @@ tr:hover td{background:#f0f8f8}
   <div style="background:#f0f8f8;border:1px solid var(--t6);border-radius:6px;padding:7px 12px;font-size:9px;color:var(--sub);margin-bottom:8px;display:flex;align-items:center;gap:8px">
     📌 <b>판매정책 탭은 전사 공통 정책입니다.</b> 상단 본부/담당 필터와 무관하게 전체 정책이 표시됩니다.
     <span style="margin-left:auto;color:var(--muted)">정책 레이블화 체계: 날짜/모델/약정/가입유형/채널/금액 기준 행 데이터화 진행 예정</span>
+    <a href="/assets/policy/wireless_policy_202604.pdf" target="_blank" style="font-size:9px;font-weight:800;color:var(--t1);text-decoration:none;border:1px solid var(--t6);border-radius:4px;padding:3px 6px;background:white">4월 정책 PDF</a>
   </div>
   <div style="display:flex;gap:0;margin-bottom:10px;border-bottom:2px solid var(--border)">
     <div class="stab active" id="st0" onclick="switchSubTab(0)">📋 정책 맵</div>
@@ -2884,7 +2885,45 @@ function dismissUpdate(){
 
 /* GPT enhancement patch removed: reverted to stable baseline. */
 
+async function uploadWorkbook(inputId,url,label){
+  const el=document.getElementById(inputId);
+  if(!el)return;
+  el.addEventListener('change',async()=>{
+    const file=el.files&&el.files[0];
+    if(!file)return;
+    const st=document.getElementById('uploadStatus');
+    const old=st?st.textContent:'';
+    if(st)st.textContent=`${label} 업로드 중...`;
+    const fd=new FormData();fd.append('file',file);
+    try{
+      const resp=await fetch(url,{method:'POST',body:fd});
+      const r=await resp.json().catch(()=>({}));
+      if(!resp.ok||r.status==='실패')throw new Error(r.error||`HTTP ${resp.status}`);
+      if(st)st.textContent=`${label} 완료 (${r.total_sales?fmt(r.total_sales):r.rows||r.total||'OK'})`;
+      await resetFilters();
+      if(currentTab===6)renderTab6();
+    }catch(e){
+      console.error('[upload 오류]',label,e);
+      if(st)st.textContent=`${label} 실패 - 기존 데이터 유지`;
+      alert(`${label} 업로드 실패\n${e.message||e}`);
+    }finally{
+      el.value='';
+      setTimeout(()=>{if(st&&st.textContent.includes(label))st.textContent=old||'';},5000);
+    }
+  });
+}
+
+function setupUploads(){
+  uploadWorkbook('fSales','/upload','판매');
+  uploadWorkbook('fDevice','/upload/device','단말');
+  uploadWorkbook('fInv','/upload/inventory','재고');
+  uploadWorkbook('fSub','/upload/subscriber','가입자');
+  uploadWorkbook('fComm','/upload/commission','수수료');
+  uploadWorkbook('fKtoa','/upload/ktoa','KTOA');
+}
+
 async function init(){
+  setupUploads();
   let f;
   try{
     const resp=await fetch('/api/filters');

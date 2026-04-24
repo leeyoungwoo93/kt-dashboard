@@ -1,6 +1,7 @@
-import os, io
+import os, io, re, zipfile
+import xml.etree.ElementTree as ET
 from fastapi import FastAPI, UploadFile, File, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import List
@@ -123,71 +124,267 @@ def _read_headered_excel(contents, header_terms):
     return df
 
 def safe_int(v):
-    try: return int(v) if pd.notna(v) else 0
-    except: return 0
+    try:
+        if v is None or pd.isna(v):
+            return 0
+        if isinstance(v, str):
+            t = v.strip().replace(",", "")
+            if t in ("", "-", "nan", "None"):
+                return 0
+            return int(float(t))
+        return int(v)
+    except Exception:
+        return 0
 
 def safe_float(v):
-    try: return float(v) if pd.notna(v) else 0.0
-    except: return 0.0
+    try:
+        if v is None or pd.isna(v):
+            return 0.0
+        if isinstance(v, str):
+            t = v.strip().replace(",", "")
+            if t in ("", "-", "nan", "None"):
+                return 0.0
+            return float(t)
+        return float(v)
+    except Exception:
+        return 0.0
 
-def _load_sales(db, contents):
-    """
-    판매 파일 로더.
-    기존 고정 컬럼 번호 방식은 파일에 컬럼이 하나만 추가되어도 '순증'을 '신규'로 읽는 문제가 있었다.
-    먼저 헤더명을 기준으로 컬럼을 찾고, 실패할 때만 과거 고정 인덱스 fallback을 사용한다.
-    """
+_XLSX_MAIN_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+
+def _text(v):
+    """엑셀 값 문자열 정규화. 조직코드 123.0 같은 값은 123으로 보정한다."""
+    try:
+        if v is None or pd.isna(v):
+            return ""
+    except Exception:
+        if v is None:
+            return ""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    txt = str(v).replace("\n", " ").strip()
+    if txt.lower() in ("nan", "none"):
+        return ""
+    if txt.endswith(".0") and txt[:-2].replace("-", "").isdigit():
+        return txt[:-2]
+    return re.sub(r"\s+", " ", txt)
+
+
+def _xlsx_col_idx(cell_ref):
+    col = 0
+    for ch in str(cell_ref or ""):
+        if "A" <= ch <= "Z":
+            col = col * 26 + (ord(ch) - 64)
+        else:
+            break
+    return max(0, col - 1)
+
+
+def _load_xlsx_shared_strings(zf):
+    try:
+        stream = zf.open("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+    strings = []
+    for _, elem in ET.iterparse(stream, events=("end",)):
+        if elem.tag == _XLSX_MAIN_NS + "si":
+            parts = []
+            for t in elem.iter(_XLSX_MAIN_NS + "t"):
+                if t.text:
+                    parts.append(t.text)
+            strings.append("".join(parts))
+            elem.clear()
+    return strings
+
+
+def _first_xlsx_sheet_path(zf):
+    # workbook relationship 기준으로 첫 worksheet를 찾는다. 일부 파일은 sheet1.xml이 아니라 worksheet1.xml이다.
+    try:
+        rels = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+        rel_ns = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+        for rel in rels.findall(rel_ns + "Relationship"):
+            if str(rel.attrib.get("Type", "")).endswith("/worksheet"):
+                target = rel.attrib.get("Target", "")
+                if target.startswith("/"):
+                    return target.lstrip("/")
+                return "xl/" + target.lstrip("/")
+    except Exception:
+        pass
+    for name in zf.namelist():
+        if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+            return name
+    raise ValueError("엑셀 시트 XML을 찾지 못했습니다.")
+
+
+def _xlsx_cell_value(cell, shared_strings):
+    typ = cell.attrib.get("t")
+    if typ == "inlineStr":
+        return "".join(t.text or "" for t in cell.iter(_XLSX_MAIN_NS + "t"))
+    v = cell.find(_XLSX_MAIN_NS + "v")
+    if v is None or v.text is None:
+        return None
+    raw = v.text
+    if typ == "s":
+        try:
+            return shared_strings[int(raw)]
+        except Exception:
+            return raw
+    if typ == "b":
+        return raw == "1"
+    try:
+        if "." in raw or "E" in raw or "e" in raw:
+            num = float(raw)
+            return int(num) if num.is_integer() else num
+        return int(raw)
+    except Exception:
+        return raw
+
+
+def _iter_xlsx_rows(contents):
+    with zipfile.ZipFile(io.BytesIO(contents)) as zf:
+        shared = _load_xlsx_shared_strings(zf)
+        sheet_path = _first_xlsx_sheet_path(zf)
+        with zf.open(sheet_path) as stream:
+            for _, row in ET.iterparse(stream, events=("end",)):
+                if row.tag != _XLSX_MAIN_NS + "row":
+                    continue
+                values = {}
+                for cell in row.iter(_XLSX_MAIN_NS + "c"):
+                    values[_xlsx_col_idx(cell.attrib.get("r", ""))] = _xlsx_cell_value(cell, shared)
+                row_no = safe_int(row.attrib.get("r"))
+                if values:
+                    max_i = max(values)
+                    yield row_no, [values.get(i) for i in range(max_i + 1)]
+                else:
+                    yield row_no, []
+                row.clear()
+
+
+def _is_sales_standard_header(row):
+    joined = " ".join(_text(v) for v in row)
+    return (
+        "판매량" in joined and "신규" in joined and "MNP" in joined
+        and ("무선_(26년)판매채널" in joined or "판매채널(소분류)" in joined or "무선유통조직" in joined)
+    )
+
+
+def _row_get(row, idx, default=None):
+    return row[idx] if idx < len(row) else default
+
+
+def _sales_obj_from_standard_row(row):
+    """26년 무선 판매 표준 레이아웃 파싱. 코드 컬럼이 아니라 이름 컬럼을 사용한다."""
+    bonbu = _text(_row_get(row, 4))
+    team = _text(_row_get(row, 6))
+    agency = _text(_row_get(row, 12)) or _text(_row_get(row, 10))
+    if bonbu in ("", "합계", "총합계") or bonbu.replace("-", "").isdigit():
+        return None
+
+    sale_cnt = max(0, safe_int(_row_get(row, 22)))
+    new_sale = max(0, safe_int(_row_get(row, 24)))
+    n010 = max(0, safe_int(_row_get(row, 25)))
+    mnp_val = max(0, safe_int(_row_get(row, 26)))
+    premium_val = max(0, safe_int(_row_get(row, 39)))
+    churn_val = max(0, safe_int(_row_get(row, 31)))
+    if new_sale == 0:
+        new_sale = n010 + mnp_val
+    if n010 == 0 and new_sale >= mnp_val:
+        n010 = max(0, new_sale - mnp_val)
+    if sale_cnt == 0:
+        sale_cnt = max(0, new_sale + premium_val)
+    if sale_cnt == 0 and new_sale == 0 and mnp_val == 0 and premium_val == 0 and churn_val == 0:
+        return None
+
+    arpu_val = safe_float(_row_get(row, 40))
+    rev_val = safe_float(_row_get(row, 41))
+    sub_val = max(0, safe_int(_row_get(row, 42)))
+    obj = Sales(
+        boomun=_text(_row_get(row, 2)), bonbu=bonbu, team=team, dept=_text(_row_get(row, 8)),
+        agency_code=_text(_row_get(row, 11)) or _text(_row_get(row, 9)),
+        agency_org=agency, agency=agency,
+        channel1=_text(_row_get(row, 13)), channel2=_text(_row_get(row, 14)), channel3=_text(_row_get(row, 15)),
+        channel_sub=_text(_row_get(row, 20)),
+        sale_type=_text(_row_get(row, 16)), kids=_text(_row_get(row, 17)),
+        foreigner=_text(_row_get(row, 19)), k110=_text(_row_get(row, 18)),
+        sale_count=sale_cnt, net_add=safe_int(_row_get(row, 23)),
+        new_sub=new_sale, mnp=mnp_val,
+        smnp=max(0, safe_int(_row_get(row, 27))), lmnp=max(0, safe_int(_row_get(row, 28))),
+        mmnp=max(0, safe_int(_row_get(row, 29))), vmnp=max(0, safe_int(_row_get(row, 30))),
+        churn=churn_val, mnp_churn=max(0, safe_int(_row_get(row, 33))),
+        smnp_churn=max(0, safe_int(_row_get(row, 34))), lmnp_churn=max(0, safe_int(_row_get(row, 35))),
+        mmnp_churn=max(0, safe_int(_row_get(row, 36))), vmnp_churn=max(0, safe_int(_row_get(row, 37))),
+        forced_churn=max(0, safe_int(_row_get(row, 38))), premium_change=premium_val,
+        arpu=arpu_val, revenue=rev_val, subscriber=sub_val,
+    )
+    obj.new_sale = new_sale
+    obj.new010 = n010
+    obj.new_arpu = arpu_val
+    return obj
+
+
+def _parse_sales_standard_xlsx(contents):
+    if not zipfile.is_zipfile(io.BytesIO(contents)):
+        return None
+    rows = []
+    header_found = False
+    for row_no, row in _iter_xlsx_rows(contents):
+        if not header_found:
+            if _is_sales_standard_header(row):
+                header_found = True
+                continue
+            if row_no and row_no > 15:
+                return None
+            continue
+        obj = _sales_obj_from_standard_row(row)
+        if obj is not None:
+            rows.append(obj)
+    return rows if header_found else None
+
+
+def _validate_sales_rows(rows):
+    if not rows:
+        raise ValueError("판매 데이터로 인식된 행이 없습니다. 판매 파일/시트를 다시 확인하세요.")
+    total_sales = sum(max(0, int(getattr(r, "sale_count", 0) or 0)) for r in rows)
+    if total_sales <= 0:
+        raise ValueError("판매량 합계가 0입니다. 파일 컬럼 또는 업로드 대상을 확인하세요.")
+    sample = rows[:min(len(rows), 1000)]
+    korean_bonbu = sum(1 for r in sample if re.search(r"[가-힣]", _text(getattr(r, "bonbu", ""))))
+    legacy_channel = sum(1 for r in sample if re.match(r"^[1-8]-[1-9]\.\s*", _text(getattr(r, "channel_sub", ""))))
+    if len(sample) >= 10 and korean_bonbu / len(sample) < 0.2:
+        raise ValueError("본부명이 코드로 파싱되었습니다. 표준 판매 파일의 이름 컬럼을 찾지 못했습니다.")
+    if len(sample) >= 10 and legacy_channel / len(sample) < 0.2:
+        raise ValueError("채널구분 원본 소분류(1-1~8-2)를 찾지 못했습니다. 판매 파일 컬럼을 확인하세요.")
+    if len(rows) < 10 and total_sales < 100:
+        raise ValueError(f"판매 데이터가 비정상적으로 적습니다(rows={len(rows)}, total={total_sales}). 기존 DB는 유지했습니다.")
+    return {"rows": len(rows), "total_sales": total_sales, "legacy_channel_rows": legacy_channel}
+
+
+def _replace_sales_rows(db, rows):
+    stats = _validate_sales_rows(rows)
+    try:
+        db.query(Sales).delete()
+        for i in range(0, len(rows), BATCH):
+            db.bulk_save_objects(rows[i:i + BATCH])
+        db.commit()
+        print(f"[판매로드] rows={stats['rows']} total_sales={stats['total_sales']} legacy_channel_sample={stats['legacy_channel_rows']}")
+        return stats
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _parse_sales_pandas_fallback(contents):
     import re as _re
 
     def _clean_name(v):
         if pd.isna(v): return ""
         return _re.sub(r"\s+", "", str(v).replace("\n", " ").strip())
 
-    def _read_sales_frame():
-        raw = pd.read_excel(io.BytesIO(contents), header=None)
-        if raw.empty:
-            return pd.DataFrame(), False
-        terms = ["본부", "담당", "대리점", "판매", "신규", "MNP", "기변", "해지", "ARPU"]
-        best = (0, -1, None, 1)  # row, score, columns, start_row
-        max_rows = min(15, len(raw))
-        for i in range(max_rows):
-            row = [_clean_name(v) for v in raw.iloc[i].tolist()]
-            score = sum(1 for t in terms if any(t in c for c in row))
-            if score > best[1]:
-                best = (i, score, row, i + 1)
-            if i + 1 < len(raw):
-                top = pd.Series(raw.iloc[i].tolist()).ffill().tolist()
-                sub = raw.iloc[i + 1].tolist()
-                combo = []
-                for a, b in zip(top, sub):
-                    ca, cb = _clean_name(a), _clean_name(b)
-                    if cb and cb.lower() != "nan":
-                        combo.append((ca + "_" + cb).strip("_"))
-                    else:
-                        combo.append(ca)
-                cscore = sum(1 for t in terms if any(t in c for c in combo))
-                if cscore > best[1]:
-                    best = (i, cscore, combo, i + 2)
-        if best[1] < 3:
-            return raw, False
-        cols, used = [], {}
-        for j, c in enumerate(best[2]):
-            name = c if c and c.lower() != "nan" else f"col_{j}"
-            if name in used:
-                used[name] += 1
-                name = f"{name}_{used[name]}"
-            else:
-                used[name] = 0
-            cols.append(name)
-        df = raw.iloc[best[3]:].copy()
-        df.columns = cols
-        return df, True
-
     def _pick(df, includes, excludes=()):
         cols = list(df.columns)
         norm = {c: _clean_name(c).lower() for c in cols}
         incs = [_clean_name(x).lower() for x in includes]
         excs = [_clean_name(x).lower() for x in excludes]
-        # exact / suffix match first
         for inc in incs:
             for c in cols:
                 n = norm[c]
@@ -195,7 +392,6 @@ def _load_sales(db, contents):
                     continue
                 if n == inc or n.endswith("_" + inc):
                     return c
-        # contains match
         for inc in incs:
             for c in cols:
                 n = norm[c]
@@ -207,15 +403,7 @@ def _load_sales(db, contents):
 
     def _s(row, col):
         if not col: return ""
-        v = row.get(col, "")
-        if pd.isna(v): return ""
-        txt = str(v).strip()
-        if txt.lower() in ("nan", "none"):
-            return ""
-        # 엑셀에서 조직코드가 123.0 형태로 들어온 경우 보정
-        if txt.endswith(".0") and txt[:-2].isdigit():
-            return txt[:-2]
-        return txt
+        return _text(row.get(col, ""))
 
     def _cnt(row, col):
         return max(0, safe_int(row.get(col, 0))) if col else 0
@@ -224,161 +412,146 @@ def _load_sales(db, contents):
         return safe_float(row.get(col, 0)) if col else 0.0
 
     def _valid_org(v):
-        if v is None: return False
-        x = str(v).strip()
-        if x in ("", "nan", "None", "합계", "총합계", "소계"):
+        x = _text(v)
+        if x in ("", "합계", "총합계"):
             return False
-        # 본부/담당명은 '수도권서부고객본부'처럼 문자여야 한다. 순수 숫자만 있는 행은 헤더/코드 행으로 간주.
         if x.replace("-", "").replace(".", "").isdigit():
             return False
         return True
 
-    df, headered = _read_sales_frame()
-    db.query(Sales).delete(); db.commit()
-    buf = []
+    raw = pd.read_excel(io.BytesIO(contents), header=None)
+    # pandas fallback에서도 표준 헤더가 보이면 정확한 고정 컬럼으로 읽는다.
+    header_idx = None
+    for i in range(min(20, len(raw))):
+        if _is_sales_standard_header(raw.iloc[i].tolist()):
+            header_idx = i
+            break
+    if header_idx is not None:
+        rows = []
+        for _, row in raw.iloc[header_idx + 1:].iterrows():
+            obj = _sales_obj_from_standard_row(row.tolist())
+            if obj is not None:
+                rows.append(obj)
+        return rows
 
-    if headered:
-        c_boomun = _pick(df, ["부문", "그룹", "총괄"])
-        c_bonbu = _pick(df, ["본부명", "본부"])
-        c_team = _pick(df, ["담당명", "담당", "지사명", "지사"])
-        c_dept = _pick(df, ["부서", "조직"])
-        c_agency_code = _pick(df, ["대리점코드", "무선유통조직", "계약대리점코드", "판매조직"])
-        c_agency_org = _pick(df, ["대리점조직", "대리점조직명", "판매조직명"])
-        c_agency = _pick(df, ["계약대리점명", "대리점명", "대리점"])
-        c_ch1 = _pick(df, ["채널대분류", "채널1", "판매채널대분류"])
-        c_ch2 = _pick(df, ["채널중분류", "채널2", "판매채널중분류"])
-        c_ch3 = _pick(df, ["채널소분류", "채널3", "판매채널소분류"])
-        c_chsub = _pick(df, ["채널상세", "채널Sub", "채널서브", "판매유형", "판매경로", "채널"], ["대분류", "중분류", "소분류"])
-        c_sale_type = _pick(df, ["판매구분", "구분", "일반중고", "일반/중고"])
-        c_kids = _pick(df, ["키즈", "Kids"])
-        c_foreigner = _pick(df, ["외국인", "내외국인", "내/외국인"])
-        c_k110 = _pick(df, ["초이스", "110K", "110"])
+    # 범용 헤더 파일 대응. 표준 파일은 위 fast/fixed path에서 처리된다.
+    best = (0, -1, None, 1)
+    terms = ["본부", "담당", "대리점", "판매", "신규", "MNP", "기변", "해지", "ARPU"]
+    for i in range(min(15, len(raw))):
+        row = [_clean_name(v) for v in raw.iloc[i].tolist()]
+        score = sum(1 for t in terms if any(t in c for c in row))
+        if score > best[1]:
+            best = (i, score, row, i + 1)
+        if i + 1 < len(raw):
+            top = pd.Series(raw.iloc[i].tolist()).ffill().tolist()
+            sub = raw.iloc[i + 1].tolist()
+            combo = []
+            for a, b in zip(top, sub):
+                ca, cb = _clean_name(a), _clean_name(b)
+                combo.append((ca + "_" + cb).strip("_") if cb and cb.lower() != "nan" else ca)
+            cscore = sum(1 for t in terms if any(t in c for c in combo))
+            if cscore > best[1]:
+                best = (i, cscore, combo, i + 2)
+    if best[1] < 3:
+        raise ValueError("판매 파일 헤더를 찾지 못했습니다.")
+    cols, used = [], {}
+    for j, c in enumerate(best[2]):
+        name = c if c and c.lower() != "nan" else f"col_{j}"
+        if name in used:
+            used[name] += 1
+            name = f"{name}_{used[name]}"
+        else:
+            used[name] = 0
+        cols.append(name)
+    df = raw.iloc[best[3]:].copy()
+    df.columns = cols
 
-        c_sale = _pick(df, ["총판매", "판매량", "판매건수", "개통건수", "판매"], ["신규", "MNP", "번호이동", "기변", "해지", "순증", "매출", "ARPU", "율", "비중", "목표"])
-        c_net = _pick(df, ["순증", "순증감", "netadd", "net_add"])
-        c_new = _pick(df, ["신규판매", "신규가입", "신규개통", "신규"], ["010", "순증", "ARPU", "율", "비중", "목표", "해지"])
-        c_010 = _pick(df, ["010신규", "010 신규", "순수신규", "순수 신규", "010"], ["해지", "율", "비중", "목표"])
-        c_mnp = _pick(df, ["총MNP", "MNP계", "번호이동계", "MNP", "번호이동"], ["해지", "순증", "율", "비중", "목표", "S.MNP", "L.MNP", "M.MNP", "V.MNP", "SMNP", "LMNP", "MMNP", "VMNP", "SKT", "LGU", "MVNO", "자사이동"])
-        c_smnp = _pick(df, ["S.MNP", "SMNP", "S_MNP", "SKT MNP", "SKT"] , ["해지", "순증", "율", "비중"])
-        c_lmnp = _pick(df, ["L.MNP", "LMNP", "L_MNP", "LGU MNP", "LGU"] , ["해지", "순증", "율", "비중"])
-        c_mmnp = _pick(df, ["M.MNP", "MMNP", "M_MNP", "자사이동", "MNO자사"] , ["해지", "순증", "율", "비중"])
-        c_vmnp = _pick(df, ["V.MNP", "VMNP", "V_MNP", "MVNO", "알뜰"] , ["해지", "순증", "율", "비중"])
-        c_churn = _pick(df, ["총해지", "해지건수", "해지"], ["MNP", "S.MNP", "L.MNP", "M.MNP", "V.MNP", "율", "비중", "목표"])
-        c_mnp_churn = _pick(df, ["MNP해지", "번호이동해지"])
-        c_smnp_churn = _pick(df, ["S.MNP해지", "SMNP해지", "SKT해지"])
-        c_lmnp_churn = _pick(df, ["L.MNP해지", "LMNP해지", "LGU해지"])
-        c_mmnp_churn = _pick(df, ["M.MNP해지", "MMNP해지", "자사이동해지"])
-        c_vmnp_churn = _pick(df, ["V.MNP해지", "VMNP해지", "MVNO해지", "알뜰해지"])
-        c_forced = _pick(df, ["강제해지", "직권해지", "ForcedChurn"])
-        c_premium = _pick(df, ["기변", "기기변경", "우수기변", "우수"] , ["해지", "율", "비중", "목표"])
-        c_arpu = _pick(df, ["신규ARPU", "ARPU", "arpu"], ["목표"])
-        c_rev = _pick(df, ["매출", "판매매출", "Revenue"])
-        c_subscriber = _pick(df, ["재적가입자", "유지가입자", "가입자", "Subscriber"])
+    c_boomun = _pick(df, ["부문명", "그룹명", "총괄명", "부문"])
+    c_bonbu = _pick(df, ["본부명", "본부"])
+    c_team = _pick(df, ["담당명", "지사명", "담당", "지사"])
+    c_dept = _pick(df, ["부서명", "부서", "조직명", "조직"])
+    c_agency_code = _pick(df, ["무선유통조직코드", "대리점코드", "계약대리점코드", "판매조직코드", "무선유통조직"])
+    c_agency = _pick(df, ["무선유통조직명", "계약대리점명", "대리점명", "대리점"])
+    c_ch1 = _pick(df, ["채널1", "채널대분류", "판매채널대분류"])
+    c_ch2 = _pick(df, ["채널2", "채널중분류", "판매채널중분류"])
+    c_ch3 = _pick(df, ["채널3", "채널소분류", "판매채널소분류"])
+    c_chsub = _pick(df, ["무선_(26년)판매채널", "판매채널(소분류)", "채널상세", "채널Sub", "채널서브"], ["채널1", "채널2", "채널3"])
+    c_sale_type = _pick(df, ["04.일반/중고구분", "일반/중고", "일반중고", "판매구분", "구분"])
+    c_kids = _pick(df, ["06.키즈", "키즈", "Kids"])
+    c_foreigner = _pick(df, ["내외국인구분", "외국인", "내외국인", "내/외국인"])
+    c_k110 = _pick(df, ["초이스", "110K", "110"])
+    c_sale = _pick(df, ["총판매", "판매량", "판매건수", "개통건수", "판매"], ["신규", "MNP", "번호이동", "기변", "해지", "순증", "매출", "ARPU", "율", "비중", "목표"])
+    c_net = _pick(df, ["순증", "순증감", "netadd", "net_add"])
+    c_new = _pick(df, ["신규판매", "신규가입", "신규개통", "신규"], ["010", "순증", "ARPU", "율", "비중", "목표", "해지"])
+    c_010 = _pick(df, ["010신규", "010 신규", "순수신규", "순수 신규", "010"], ["해지", "율", "비중", "목표"])
+    c_mnp = _pick(df, ["총MNP", "MNP계", "번호이동계", "MNP", "번호이동"], ["해지", "순증", "율", "비중", "목표", "S.MNP", "L.MNP", "M.MNP", "V.MNP", "SMNP", "LMNP", "MMNP", "VMNP", "SKT", "LGU", "MVNO", "자사이동"])
+    c_smnp = _pick(df, ["S.MNP", "SMNP", "S_MNP", "SKT MNP", "SKT"], ["해지", "순증", "율", "비중"])
+    c_lmnp = _pick(df, ["L.MNP", "LMNP", "L_MNP", "LGU MNP", "LGU"], ["해지", "순증", "율", "비중"])
+    c_mmnp = _pick(df, ["M.MNP", "MMNP", "M_MNP", "자사이동", "MNO자사"], ["해지", "순증", "율", "비중"])
+    c_vmnp = _pick(df, ["V.MNP", "VMNP", "V_MNP", "MVNO", "알뜰"], ["해지", "순증", "율", "비중"])
+    c_churn = _pick(df, ["총해지", "해지건수", "해지"], ["MNP", "S.MNP", "L.MNP", "M.MNP", "V.MNP", "율", "비중", "목표"])
+    c_mnp_churn = _pick(df, ["MNP해지", "번호이동해지"])
+    c_smnp_churn = _pick(df, ["S.MNP해지", "SMNP해지", "SKT해지"])
+    c_lmnp_churn = _pick(df, ["L.MNP해지", "LMNP해지", "LGU해지"])
+    c_mmnp_churn = _pick(df, ["M.MNP해지", "MMNP해지", "자사이동해지"])
+    c_vmnp_churn = _pick(df, ["V.MNP해지", "VMNP해지", "MVNO해지", "알뜰해지"])
+    c_forced = _pick(df, ["강제해지", "직권해지", "ForcedChurn"])
+    c_premium = _pick(df, ["기변", "기기변경", "우수기변", "우수"], ["해지", "율", "비중", "목표"])
+    c_arpu = _pick(df, ["신규ARPU", "ARPU", "arpu"], ["목표"])
+    c_rev = _pick(df, ["매출", "판매매출", "Revenue"])
+    c_subscriber = _pick(df, ["재적가입자", "유지가입자", "가입자", "Subscriber"])
 
-        for _, row in df.iterrows():
-            bonbu = _s(row, c_bonbu)
-            team = _s(row, c_team)
-            agency = _s(row, c_agency)
-            # 본부가 없고 담당/대리점만 있는 파일도 허용하되, 완전 빈 행은 제외
-            if not (_valid_org(bonbu) or _valid_org(team) or _valid_org(agency)):
-                continue
-            mnp_parts = _cnt(row, c_smnp) + _cnt(row, c_lmnp) + _cnt(row, c_mmnp) + _cnt(row, c_vmnp)
-            mnp_val = _cnt(row, c_mnp) or mnp_parts
-            new_sale = _cnt(row, c_new)
-            n010 = _cnt(row, c_010)
-            if new_sale == 0:
-                new_sale = n010 + mnp_val
-            if n010 == 0 and new_sale >= mnp_val:
-                n010 = max(0, new_sale - mnp_val)
-            premium_val = _cnt(row, c_premium)
-            sale_cnt = _cnt(row, c_sale)
-            if sale_cnt == 0:
-                sale_cnt = max(0, new_sale + premium_val)
-            churn_val = _cnt(row, c_churn)
-            if churn_val == 0:
-                churn_val = _cnt(row, c_smnp_churn) + _cnt(row, c_lmnp_churn) + _cnt(row, c_mmnp_churn) + _cnt(row, c_vmnp_churn) + _cnt(row, c_forced)
-            rev_val = _flt(row, c_rev)
-            sub_val = _cnt(row, c_subscriber)
-            arpu_val = _flt(row, c_arpu)
-            if arpu_val <= 100 and rev_val > 0 and sub_val > 0:
-                arpu_val = round(rev_val / sub_val)
-            obj = Sales(
-                boomun=_s(row, c_boomun), bonbu=bonbu, team=team, dept=_s(row, c_dept),
-                agency_code=_s(row, c_agency_code), agency_org=_s(row, c_agency_org), agency=agency,
-                channel1=_s(row, c_ch1), channel2=_s(row, c_ch2), channel3=_s(row, c_ch3), channel_sub=_s(row, c_chsub),
-                sale_type=_s(row, c_sale_type), kids=_s(row, c_kids), foreigner=_s(row, c_foreigner), k110=_s(row, c_k110),
-                sale_count=sale_cnt, net_add=safe_int(row.get(c_net, new_sale - churn_val)) if c_net else new_sale - churn_val,
-                new_sub=new_sale, mnp=mnp_val,
-                smnp=_cnt(row, c_smnp), lmnp=_cnt(row, c_lmnp), mmnp=_cnt(row, c_mmnp), vmnp=_cnt(row, c_vmnp),
-                churn=churn_val, mnp_churn=_cnt(row, c_mnp_churn),
-                smnp_churn=_cnt(row, c_smnp_churn), lmnp_churn=_cnt(row, c_lmnp_churn),
-                mmnp_churn=_cnt(row, c_mmnp_churn), vmnp_churn=_cnt(row, c_vmnp_churn),
-                forced_churn=_cnt(row, c_forced), premium_change=premium_val,
-                arpu=arpu_val, revenue=rev_val, subscriber=sub_val,
-            )
-            obj.new_sale = new_sale
-            obj.new010 = n010
-            obj.new_arpu = arpu_val
-            # 완전 무실적/무조직 잡행 제거
-            if obj.sale_count == 0 and obj.new_sale == 0 and obj.mnp == 0 and obj.premium_change == 0 and obj.churn == 0:
-                continue
-            buf.append(obj)
-            if len(buf) >= BATCH:
-                db.bulk_save_objects(buf); db.commit(); buf = []
-        if buf: db.bulk_save_objects(buf); db.commit()
-        return
-
-    # fallback: 과거 고정 인덱스. 단, 음수 실적은 0으로 보정하고 판매량 누락 시 신규+기변으로 역산한다.
-    df = pd.read_excel(io.BytesIO(contents), skiprows=2, header=None)
+    rows = []
     for _, row in df.iterrows():
-        val_bonbu = str(_row_val(row, 3, "")) if pd.notna(_row_val(row, 3, "")) else ""
-        if val_bonbu in ("", "nan", "None", "합계") or val_bonbu.lstrip("-").isdigit(): continue
-        sale_cnt = max(0, safe_int(_row_val(row, 21)))
-        new_sale = max(0, safe_int(_row_val(row, 23)))
-        n010_raw = max(0, safe_int(_row_val(row, 24)))
-        mnp_val = max(0, safe_int(_row_val(row, 25)))
-        n010 = n010_raw if n010_raw > 0 else max(0, new_sale - mnp_val)
-        premium_val = max(0, safe_int(_row_val(row, 38)))
+        bonbu, team, agency = _s(row, c_bonbu), _s(row, c_team), _s(row, c_agency)
+        if not (_valid_org(bonbu) or _valid_org(team) or _valid_org(agency)):
+            continue
+        mnp_parts = _cnt(row, c_smnp) + _cnt(row, c_lmnp) + _cnt(row, c_mmnp) + _cnt(row, c_vmnp)
+        mnp_val = _cnt(row, c_mnp) or mnp_parts
+        new_sale = _cnt(row, c_new)
+        n010 = _cnt(row, c_010)
         if new_sale == 0:
             new_sale = n010 + mnp_val
-        if sale_cnt == 0:
-            sale_cnt = max(0, new_sale + premium_val)
-        arpu_val = safe_float(_row_val(row, 39))
+        if n010 == 0 and new_sale >= mnp_val:
+            n010 = max(0, new_sale - mnp_val)
+        premium_val = _cnt(row, c_premium)
+        sale_cnt = _cnt(row, c_sale) or max(0, new_sale + premium_val)
+        churn_val = _cnt(row, c_churn) or (_cnt(row, c_smnp_churn) + _cnt(row, c_lmnp_churn) + _cnt(row, c_mmnp_churn) + _cnt(row, c_vmnp_churn) + _cnt(row, c_forced))
+        if sale_cnt == 0 and new_sale == 0 and mnp_val == 0 and premium_val == 0 and churn_val == 0:
+            continue
+        arpu_val = _flt(row, c_arpu)
         obj = Sales(
-            boomun=str(_row_val(row, 1, "")) if pd.notna(_row_val(row, 1, "")) else "",
-            bonbu=val_bonbu, team=str(_row_val(row, 5, "")) if pd.notna(_row_val(row, 5, "")) else "",
-            dept=str(_row_val(row, 7, "")) if pd.notna(_row_val(row, 7, "")) else "",
-            agency_code=str(_row_val(row, 8, "")) if pd.notna(_row_val(row, 8, "")) else "",
-            agency_org=str(_row_val(row, 9, "")) if pd.notna(_row_val(row, 9, "")) else "",
-            agency=str(_row_val(row, 11, "")) if pd.notna(_row_val(row, 11, "")) else "",
-            channel1=str(_row_val(row, 12, "")) if pd.notna(_row_val(row, 12, "")) else "",
-            channel2=str(_row_val(row, 13, "")) if pd.notna(_row_val(row, 13, "")) else "",
-            channel3=str(_row_val(row, 14, "")) if pd.notna(_row_val(row, 14, "")) else "",
-            channel_sub=str(_row_val(row, 19, "")) if pd.notna(_row_val(row, 19, "")) else "",
-            sale_type=str(_row_val(row, 15, "")) if pd.notna(_row_val(row, 15, "")) else "",
-            kids=str(_row_val(row, 16, "")) if pd.notna(_row_val(row, 16, "")) else "",
-            foreigner=str(_row_val(row, 17, "")) if pd.notna(_row_val(row, 17, "")) else "",
-            k110=str(_row_val(row, 18, "")) if pd.notna(_row_val(row, 18, "")) else "",
-            sale_count=sale_cnt, net_add=new_sale - max(0, safe_int(_row_val(row, 30))),
+            boomun=_s(row, c_boomun), bonbu=bonbu, team=team, dept=_s(row, c_dept),
+            agency_code=_s(row, c_agency_code), agency_org=agency, agency=agency,
+            channel1=_s(row, c_ch1), channel2=_s(row, c_ch2), channel3=_s(row, c_ch3), channel_sub=_s(row, c_chsub),
+            sale_type=_s(row, c_sale_type), kids=_s(row, c_kids), foreigner=_s(row, c_foreigner), k110=_s(row, c_k110),
+            sale_count=sale_cnt, net_add=safe_int(row.get(c_net, new_sale - churn_val)) if c_net else new_sale - churn_val,
             new_sub=new_sale, mnp=mnp_val,
-            smnp=max(0, safe_int(_row_val(row, 26))), lmnp=max(0, safe_int(_row_val(row, 27))),
-            mmnp=max(0, safe_int(_row_val(row, 28))), vmnp=max(0, safe_int(_row_val(row, 29))),
-            churn=max(0, safe_int(_row_val(row, 30))), mnp_churn=max(0, safe_int(_row_val(row, 32))),
-            smnp_churn=max(0, safe_int(_row_val(row, 33))), lmnp_churn=max(0, safe_int(_row_val(row, 34))),
-            mmnp_churn=max(0, safe_int(_row_val(row, 35))), vmnp_churn=max(0, safe_int(_row_val(row, 36))),
-            forced_churn=max(0, safe_int(_row_val(row, 37))), premium_change=premium_val,
-            arpu=arpu_val, revenue=safe_float(_row_val(row, 40)),
-            subscriber=max(0, safe_int(_row_val(row, 41))),
+            smnp=_cnt(row, c_smnp), lmnp=_cnt(row, c_lmnp), mmnp=_cnt(row, c_mmnp), vmnp=_cnt(row, c_vmnp),
+            churn=churn_val, mnp_churn=_cnt(row, c_mnp_churn), smnp_churn=_cnt(row, c_smnp_churn), lmnp_churn=_cnt(row, c_lmnp_churn),
+            mmnp_churn=_cnt(row, c_mmnp_churn), vmnp_churn=_cnt(row, c_vmnp_churn), forced_churn=_cnt(row, c_forced),
+            premium_change=premium_val, arpu=arpu_val, revenue=_flt(row, c_rev), subscriber=_cnt(row, c_subscriber),
         )
         obj.new_sale = new_sale
         obj.new010 = n010
         obj.new_arpu = arpu_val
-        if obj.sale_count == 0 and obj.new_sale == 0 and obj.mnp == 0 and obj.premium_change == 0 and obj.churn == 0:
-            continue
-        buf.append(obj)
-        if len(buf) >= BATCH:
-            db.bulk_save_objects(buf); db.commit(); buf = []
-    if buf: db.bulk_save_objects(buf); db.commit()
+        rows.append(obj)
+    return rows
+
+
+def _load_sales(db, contents):
+    """
+    판매 파일 로더.
+    핵심 원칙:
+    - 26년 표준 파일은 원본 1-1~8-2 채널소분류를 그대로 사용한다.
+    - 본부/담당/대리점은 코드 컬럼이 아니라 이름 컬럼을 사용한다.
+    - 일반/중고, 키즈, 내외국인도 원본 컬럼을 그대로 사용한다.
+    - 파싱·검증 성공 후에만 DB를 교체해 잘못된 업로드가 기존 데이터를 날리지 않게 한다.
+    """
+    parsed = _parse_sales_standard_xlsx(contents)
+    if parsed is None:
+        parsed = _parse_sales_pandas_fallback(contents)
+    return _replace_sales_rows(db, parsed)
 
 def _load_commission(db, contents):
     df = pd.read_excel(io.BytesIO(contents), skiprows=1, header=1)
@@ -963,11 +1136,18 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 @app.post("/upload")
 async def upload_sales(file: UploadFile = File(...)):
     contents = await file.read()
+    db = None
     try:
-        db = SessionLocal(); _load_sales(db, contents)
-        return {"status":"성공","total_sales":int(db.query(func.sum(Sales.sale_count)).scalar() or 0)}
-    except Exception as e: return {"status":"실패","error":str(e)}
-    finally: db.close()
+        db = SessionLocal()
+        stats = _load_sales(db, contents)
+        return {"status":"성공", **(stats or {}), "total_sales":int(db.query(func.sum(Sales.sale_count)).scalar() or 0)}
+    except Exception as e:
+        if db is not None:
+            db.rollback()
+        return {"status":"실패","error":str(e),"kept_existing_data":True}
+    finally:
+        if db is not None:
+            db.close()
 
 @app.post("/upload/commission")
 async def upload_commission(file: UploadFile = File(...)):
@@ -1703,7 +1883,43 @@ async def get_ktoa():
     if not _ktoa_cache: return {"rows":[],"columns":[]}
     return {"rows":_ktoa_cache,"columns":list(_ktoa_cache[0].keys())}
 
+@app.get("/api/data-health")
+async def data_health():
+    db = SessionLocal()
+    try:
+        def pack(rows):
+            return [{"name": r[0] or "", "value": int(r[1] or 0)} for r in rows]
+        total_sales = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        row_count = int(db.query(func.count(Sales.id)).scalar() or 0)
+        bonbu_top = pack(db.query(Sales.bonbu, func.sum(Sales.sale_count))
+            .filter(Sales.bonbu!="", Sales.bonbu!="nan")
+            .group_by(Sales.bonbu).order_by(func.sum(Sales.sale_count).desc()).limit(10).all())
+        channel_top = pack(db.query(Sales.channel_sub, func.sum(Sales.sale_count))
+            .filter(Sales.channel_sub!="", Sales.channel_sub!="nan")
+            .group_by(Sales.channel_sub).order_by(func.sum(Sales.sale_count).desc()).limit(30).all())
+        sale_type = pack(db.query(Sales.sale_type, func.sum(Sales.sale_count))
+            .filter(Sales.sale_type!="", Sales.sale_type!="nan")
+            .group_by(Sales.sale_type).order_by(func.sum(Sales.sale_count).desc()).all())
+        kids = pack(db.query(Sales.kids, func.sum(Sales.sale_count))
+            .filter(Sales.kids!="", Sales.kids!="nan")
+            .group_by(Sales.kids).order_by(func.sum(Sales.sale_count).desc()).all())
+        foreigner = pack(db.query(Sales.foreigner, func.sum(Sales.sale_count))
+            .filter(Sales.foreigner!="", Sales.foreigner!="nan")
+            .group_by(Sales.foreigner).order_by(func.sum(Sales.sale_count).desc()).all())
+        return {"sales_rows": row_count, "total_sales": total_sales,
+                "bonbu_top": bonbu_top, "channel_top": channel_top,
+                "sale_type": sale_type, "kids": kids, "foreigner": foreigner}
+    finally:
+        db.close()
+
 @app.get("/",response_class=HTMLResponse)
 async def dashboard():
     with open(os.path.join(os.path.dirname(__file__),"templates","index.html"),encoding="utf-8") as f:
         return f.read()
+
+@app.get("/assets/policy/wireless_policy_202604.pdf")
+async def policy_pdf():
+    path = os.path.join(DATA_DIR, "wireless_policy_202604.pdf")
+    if not os.path.exists(path):
+        return {"status":"없음","error":"정책 PDF 파일이 서버에 없습니다."}
+    return FileResponse(path, media_type="application/pdf", filename="4월무선정책.pdf")
