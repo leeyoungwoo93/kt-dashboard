@@ -820,19 +820,23 @@ tr:hover td{background:#f0f8f8}
 
 <script>
 // ═══ 전역 상태 변수 (최상단 선언) ═══════════════════════════
+let D=null, KTOA=null;
+let currentTab=0, drillLevel='bonbu', currentSubTab=0;
+let curAgency=null, agList=[];
+let selBonbu=new Set(), selTeam=new Set(), selCh=new Set(), selPolicy=new Set();
+const charts={};
 let _mainChartView='sale';
-let _devGroupMode=null;
-let _devFilter=null;
-let _devData=null;
-let _chGroupData=null;
-let _mktReg='수도권',_mktType='공통',_mktSub='MNP',_mktTab=0;
-// _mktPolicies: 최상단 선언됨
+let _devGroupMode=null, _devFilter=null, _devBrand='all', _devData=null;
+let _chGroup='all', _chGroupData=null;
+let _commView='ai';
+let _ktoaFilter='MNO';
+let _mktReg='수도권', _mktType='공통', _mktSub='MNP', _mktTab=0;
+let _mktPolicies=[];
+try{_mktPolicies=JSON.parse(localStorage.getItem('kt_mkt_policies')||'[]');}catch(e){}
 let _goals={};
 try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
-// _policyMemos: 최상단 선언됨
-// let D=null,KTOA=null,currentTab=0,drillL... → 최상단 선언됨
-
-// // charts: 최상단 선언됨... → 최상단 선언됨
+let _policyMemos=[];
+try{_policyMemos=JSON.parse(localStorage.getItem('kt_policy_memos')||'[]');}catch(e){}
 // ════════════════════════════════════════════════════════════
 
 
