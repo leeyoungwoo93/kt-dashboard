@@ -5,6 +5,7 @@ from app.database import Base
 class Sales(Base):
     __tablename__ = "sales"
     id = Column(Integer, primary_key=True, index=True)
+    yyyymm = Column(String, index=True, default="")
     boomun = Column(String)
     bonbu = Column(String)
     team = Column(String)

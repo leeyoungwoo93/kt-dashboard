@@ -193,6 +193,12 @@ tr:hover td{background:#f0f8f8}
   <div class="tab" onclick="switchTab(9)" style="color:#e67700">⑩ 시장정보</div>
 </div>
 <div class="global-fb">
+  <div><div class="fb-label">기준월</div>
+    <div class="dd-wrap" id="ddMonth">
+      <div class="dd-btn" onclick="toggleDD('ddMonth')">월 전체 <span class="dd-count" id="cntMonth" style="display:none"></span></div>
+      <div class="dd-menu" id="menuMonth"><div class="dd-all" onclick="clearSel('month')">☐ 전체 해제</div><hr class="dd-sep"><div id="listMonth"></div></div>
+    </div>
+  </div>
   <div><div class="fb-label">본부</div>
     <div class="dd-wrap" id="ddBonbu">
       <div class="dd-btn" onclick="toggleDD('ddBonbu')">본부 전체 <span class="dd-count" id="cntBonbu" style="display:none"></span></div>
@@ -480,7 +486,6 @@ tr:hover td{background:#f0f8f8}
   <div style="background:#f0f8f8;border:1px solid var(--t6);border-radius:6px;padding:7px 12px;font-size:9px;color:var(--sub);margin-bottom:8px;display:flex;align-items:center;gap:8px">
     📌 <b>판매정책 탭은 전사 공통 정책입니다.</b> 상단 본부/담당 필터와 무관하게 전체 정책이 표시됩니다.
     <span style="margin-left:auto;color:var(--muted)">정책 레이블화 체계: 날짜/모델/약정/가입유형/채널/금액 기준 행 데이터화 진행 예정</span>
-    <a href="/assets/policy/wireless_policy_202604.pdf" target="_blank" style="font-size:9px;font-weight:800;color:var(--t1);text-decoration:none;border:1px solid var(--t6);border-radius:4px;padding:3px 6px;background:white">4월 정책 PDF</a>
   </div>
   <div style="display:flex;gap:0;margin-bottom:10px;border-bottom:2px solid var(--border)">
     <div class="stab active" id="st0" onclick="switchSubTab(0)">📋 정책 맵</div>
@@ -826,7 +831,7 @@ tr:hover td{background:#f0f8f8}
 let D=null, KTOA=null;
 let currentTab=0, drillLevel='bonbu', currentSubTab=0;
 let curAgency=null, agList=[];
-let selBonbu=new Set(), selTeam=new Set(), selCh=new Set(), selPolicy=new Set();
+let selBonbu=new Set(), selTeam=new Set(), selCh=new Set(), selPolicy=new Set(), selMonth=new Set();
 const charts={};
 let _mainChartView='sale';
 let _devGroupMode=null, _devFilter=null, _devBrand='all', _devData=null;
@@ -870,6 +875,7 @@ const pctOf=(v,t)=>t>0?Math.round(v/t*100):0;
 const escQ=s=>String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
 const CH_SHORT={'1-1. 소매_매장':'소·매장','1-2. 소매_플라자':'소·플라자','1-3. 소매_대형마트':'소·대형마트','2-1. 도매':'도매','3-1. 비대면_직접(KT샵)':'비·KT샵','3-2. 비대면_직접(고객센터)':'비·고객센터','4-1. 비대면_간접(온라인_일반)':'비·일반온','4-2. 비대면_간접(온라인_매집)':'비·특수온','4-3. 비대면_간접(온라인_사외)':'비·사외온','4-4. 비대면_간접(유선_도매)':'비·유선도매','5-1. 대형유통_B2C':'대형B2C','5-2. 대형유통_B2B':'대형B2B','6-1. 방문판매_유선대리점':'방·유선','6-2. 방문판매_가판':'방·가판','6-3. 방문판매_KT서비스':'방·KTS','6-4. 방문판매_프론티어/MOT':'방·프론티어','6-5. 방문판매_KT프로':'방·KT프로','6-6. 방문판매_기타(토탈)':'방·토탈','7-1. 기업_기업마부':'기·기업마부','7-2. 기업_기업외 전략':'기·기업외','7-3. 기업_고객본부(버티컬)':'기·버티컬','8-1. 기타':'기타','8-2. 외국인여권':'외국인여권'};
 const shortCh=raw=>CH_SHORT[raw]||raw;
+const fmtMonth=raw=>raw&&raw.length>=6?`${raw.slice(0,4)}년 ${raw.slice(4,6)}월`:raw;
 
 // charts, D, KTOA 등: 최상단 선언됨
 
@@ -1003,10 +1009,12 @@ function toggleTeam(el,val){
 }
 function toggleCh(el,val){togSet(selCh,val,el);updateCount('cntCh',selCh);loadData();}
 function togglePolicy(el,val){togSet(selPolicy,val,el);updateCount('cntPolicy',selPolicy);}
+function toggleMonth(el,val){togSet(selMonth,val,el);updateCount('cntMonth',selMonth);loadData();}
 function clearSel(type){
   if(type==='bonbu'){selBonbu.clear();updateCount('cntBonbu',selBonbu);resetDrill();refreshSubFilters().then(()=>loadData());}
   else if(type==='team'){selTeam.clear();updateCount('cntTeam',selTeam);loadData();}
   else if(type==='ch'){selCh.clear();updateCount('cntCh',selCh);loadData();}
+  else if(type==='month'){selMonth.clear();updateCount('cntMonth',selMonth);loadData();}
 }
 function clearSelPolicy(){selPolicy.clear();updateCount('cntPolicy',selPolicy);}
 
@@ -1028,15 +1036,16 @@ async function refreshSubFilters(){
   agList=f.agency_list;
 }
 async function resetFilters(){
-  selBonbu.clear();selTeam.clear();selCh.clear();curAgency='';
+  selBonbu.clear();selTeam.clear();selCh.clear();selMonth.clear();curAgency='';
   document.getElementById('agencySearch').value='';
-  updateCount('cntBonbu',selBonbu);updateCount('cntTeam',selTeam);updateCount('cntCh',selCh);
+  updateCount('cntBonbu',selBonbu);updateCount('cntTeam',selTeam);updateCount('cntCh',selCh);updateCount('cntMonth',selMonth);
   resetDrill();
   const f=await(await fetch('/api/filters')).json();
   buildDD('listBonbu',f.bonbu_list,selBonbu,'toggleBonbu',null);
   buildDD('listTeam',f.team_list,selTeam,'toggleTeam',null);
   buildDD('listCh',f.channel_list,selCh,'toggleCh',shortCh);
   if(f.policy_list)buildDD('listPolicy',f.policy_list,selPolicy,'togglePolicy',null);
+  if(f.month_list)buildDD('listMonth',f.month_list,selMonth,'toggleMonth',fmtMonth);
   agList=f.agency_list;loadData();
 }
 function onAgencySearch(){
@@ -1074,6 +1083,7 @@ async function updateDrillCharts(){
   selTeam.forEach(t=>p.append('team_list',t));
   if(curAgency)p.append('agency',curAgency);
   selCh.forEach(c=>p.append('channel_list',c));
+  selMonth.forEach(m=>p.append('yyyymm_list',m));
   p.append('level',drillLevel==='agency'?'team':'bonbu');
   const dd=await(await fetch('/api/drilldown?'+p)).json();
   const items=dd.items||[];
@@ -1177,6 +1187,7 @@ async function loadData(){
   selBonbu.forEach(b=>p.append('bonbu_list',b));
   selTeam.forEach(t=>p.append('team_list',t));
   selCh.forEach(c=>p.append('channel_list',c));
+  selMonth.forEach(m=>p.append('yyyymm_list',m));
   if(curAgency)p.append('agency',curAgency);
   try{
     const resp=await fetch('/api/summary?'+p);
@@ -1190,9 +1201,10 @@ async function loadData(){
     document.getElementById('filterTag').style.background='#c0001a';
     return;
   }
-  const n=selBonbu.size+selTeam.size+selCh.size+(curAgency?1:0);
+  const n=selBonbu.size+selTeam.size+selCh.size+selMonth.size+(curAgency?1:0);
   const tag=document.getElementById('filterTag');
   const parts=[];
+  if(selMonth.size)parts.push([...selMonth].map(fmtMonth).join('/'));
   if(selBonbu.size)parts.push([...selBonbu].join(','));
   if(selTeam.size)parts.push([...selTeam].join(','));
   if(selCh.size)parts.push('채널'+selCh.size+'개');
@@ -1902,8 +1914,11 @@ function renderTab5(d){
     {label:'건당 평균수수료',val:d.comm_linked?.length&&d.comm_linked.reduce((s,c)=>s+c.sale,0)>0?fmt(Math.round(tc/d.comm_linked.reduce((s,c)=>s+c.sale,0))):'-'},
     {label:'매출/수수료 ROI',val:tc>0?((d.totals.revenue/tc)*100).toFixed(0)+'%':'-'},
   ]);
+  const noDataMsg=(id)=>{const el=document.getElementById(id);if(el){const p=el.parentElement;if(p&&!p.querySelector('.no-data-msg')){const m=document.createElement('div');m.className='no-data-msg';m.style.cssText='text-align:center;padding:20px;color:var(--muted);font-size:11px';m.textContent='수수료 데이터를 업로드하면 차트가 표시됩니다';p.appendChild(m);}}};
   if(d.comm_by_item?.length)barH('commItemChart',d.comm_by_item.map(x=>({n:x.code,v:Math.round(x.amount/1e4)})));
+  else noDataMsg('commItemChart');
   if(d.comm_by_channel?.length)barH('commChChart',d.comm_by_channel.map(x=>({n:x.name,v:Math.round(x.amount/1e4)})));
+  else noDataMsg('commChChart');
   loadCommission();
   document.getElementById('commTbody').innerHTML=(d.comm_linked||[]).map((c,i)=>`<tr>
     <td>${i+1}</td>
@@ -1946,8 +1961,22 @@ async function renderTab6(){
   const rows=(KTOA.rows||[]).map(r=>typeof fixKtoa==='function'?fixKtoa(r):r);
   if(!rows.length){document.getElementById('ktoaKpi').innerHTML='<div style="color:var(--muted);padding:20px">KTOA 데이터를 업로드해주세요</div>';return;}
 
-  const dateFrom=document.getElementById('ktoaDateFrom')?.value||'';
-  const dateTo=document.getElementById('ktoaDateTo')?.value||'';
+  // 날짜 기본값: 입력 없으면 데이터의 최근 30일 자동 설정
+  const fromEl=document.getElementById('ktoaDateFrom');
+  const toEl=document.getElementById('ktoaDateTo');
+  const allDates=rows.map(r=>r.date).filter(Boolean).sort();
+  if(fromEl&&toEl&&!fromEl.value&&!toEl.value&&allDates.length){
+    const lastDate=allDates[allDates.length-1];
+    const firstDate=allDates[0];
+    // 최근 30일 또는 전체 기간 중 짧은 쪽
+    const d=new Date(lastDate); d.setDate(d.getDate()-29);
+    const autoFrom=d.toISOString().slice(0,10);
+    fromEl.value=autoFrom>firstDate?autoFrom:firstDate;
+    toEl.value=lastDate;
+  }
+
+  const dateFrom=fromEl?.value||'';
+  const dateTo=toEl?.value||'';
   let valid=rows.filter(r=>r['KT_순증MNO']!==undefined&&Math.abs(r['KT_순증MNO']||0)<=5000);
   if(dateFrom)valid=valid.filter(r=>r.date>=dateFrom);
   if(dateTo)valid=valid.filter(r=>r.date<=dateTo);
@@ -2885,45 +2914,7 @@ function dismissUpdate(){
 
 /* GPT enhancement patch removed: reverted to stable baseline. */
 
-async function uploadWorkbook(inputId,url,label){
-  const el=document.getElementById(inputId);
-  if(!el)return;
-  el.addEventListener('change',async()=>{
-    const file=el.files&&el.files[0];
-    if(!file)return;
-    const st=document.getElementById('uploadStatus');
-    const old=st?st.textContent:'';
-    if(st)st.textContent=`${label} 업로드 중...`;
-    const fd=new FormData();fd.append('file',file);
-    try{
-      const resp=await fetch(url,{method:'POST',body:fd});
-      const r=await resp.json().catch(()=>({}));
-      if(!resp.ok||r.status==='실패')throw new Error(r.error||`HTTP ${resp.status}`);
-      if(st)st.textContent=`${label} 완료 (${r.total_sales?fmt(r.total_sales):r.rows||r.total||'OK'})`;
-      await resetFilters();
-      if(currentTab===6)renderTab6();
-    }catch(e){
-      console.error('[upload 오류]',label,e);
-      if(st)st.textContent=`${label} 실패 - 기존 데이터 유지`;
-      alert(`${label} 업로드 실패\n${e.message||e}`);
-    }finally{
-      el.value='';
-      setTimeout(()=>{if(st&&st.textContent.includes(label))st.textContent=old||'';},5000);
-    }
-  });
-}
-
-function setupUploads(){
-  uploadWorkbook('fSales','/upload','판매');
-  uploadWorkbook('fDevice','/upload/device','단말');
-  uploadWorkbook('fInv','/upload/inventory','재고');
-  uploadWorkbook('fSub','/upload/subscriber','가입자');
-  uploadWorkbook('fComm','/upload/commission','수수료');
-  uploadWorkbook('fKtoa','/upload/ktoa','KTOA');
-}
-
 async function init(){
-  setupUploads();
   let f;
   try{
     const resp=await fetch('/api/filters');
@@ -2936,6 +2927,7 @@ async function init(){
   buildDD('listTeam',f.team_list,selTeam,'toggleTeam',null);
   buildDD('listCh',f.channel_list,selCh,'toggleCh',shortCh);
   if(f.policy_list)buildDD('listPolicy',f.policy_list,selPolicy,'togglePolicy',null);
+  if(f.month_list)buildDD('listMonth',f.month_list,selMonth,'toggleMonth',fmtMonth);
   agList=f.agency_list;
   await loadData();
   if(currentTab===6)renderTab6();
