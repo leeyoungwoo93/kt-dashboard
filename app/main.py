@@ -12,6 +12,9 @@ from app.models.sales import Sales, Commission, DeviceSales, Inventory, Subscrib
 MIN_BONBU = 100
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 BATCH = 200
+APP_VERSION = "v4-retail-monthly-deploy-safe"
+AUTOLOAD_EXCEL = os.environ.get("AUTOLOAD_EXCEL", "0").lower() in ("1", "true", "yes", "on")
+
 
 
 # ── Dynamic columns / auxiliary tables ────────────────────────────
@@ -1040,27 +1043,35 @@ def _load_ktoa(contents):
 async def lifespan(app_):
     db = SessionLocal()
     try:
-        app_dir = os.path.dirname(__file__)
-        for fname, loader in [
-            ("sales.xlsx", _load_sales), ("commission.xlsx", _load_commission),
-            ("device.xlsx", _load_device), ("inventory.xlsx", _load_inventory),
-            ("subscriber.xlsx", _load_subscriber), ("storesales.xlsx", _load_storesales),
-            ("subsidy.xlsx", _load_subsidy), ("targets.xlsx", _load_targets),
-            ("business_days.xlsx", _load_business_days),
-        ]:
-            # app/data 우선, 없으면 과거 패키징 방식(app 루트)의 xlsx도 자동 인식
-            path = next((p for p in [os.path.join(DATA_DIR, fname), os.path.join(app_dir, fname)] if os.path.exists(p)), None)
-            if path:
-                with open(path, "rb") as f: loader(db, f.read())
-                print(f"[자동로드] {fname} 완료: {path}")
-        ktoa_path = next((p for p in [os.path.join(DATA_DIR, "ktoa_day.xlsx"), os.path.join(app_dir, "ktoa_day.xlsx")] if os.path.exists(p)), None)
-        if ktoa_path:
-            with open(ktoa_path, "rb") as f: _load_ktoa(f.read())
-            print(f"[자동로드] ktoa_day.xlsx 완료: {ktoa_path}")
-    except Exception as e: print(f"[자동로드 오류] {e}")
-    try: _repair_sales_sanity(db)
-    except Exception as e: print(f"[데이터 보정 호출 오류] {e}")
-    finally: db.close()
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if AUTOLOAD_EXCEL:
+            app_dir = os.path.dirname(__file__)
+            for fname, loader in [
+                ("sales.xlsx", _load_sales), ("commission.xlsx", _load_commission),
+                ("device.xlsx", _load_device), ("inventory.xlsx", _load_inventory),
+                ("subscriber.xlsx", _load_subscriber), ("storesales.xlsx", _load_storesales),
+                ("subsidy.xlsx", _load_subsidy), ("targets.xlsx", _load_targets),
+                ("business_days.xlsx", _load_business_days),
+            ]:
+                # app/data 우선, 없으면 과거 패키징 방식(app 루트)의 xlsx도 자동 인식
+                path = next((p for p in [os.path.join(DATA_DIR, fname), os.path.join(app_dir, fname)] if os.path.exists(p)), None)
+                if path:
+                    with open(path, "rb") as f: loader(db, f.read())
+                    print(f"[자동로드] {fname} 완료: {path}")
+            ktoa_path = next((p for p in [os.path.join(DATA_DIR, "ktoa_day.xlsx"), os.path.join(app_dir, "ktoa_day.xlsx")] if os.path.exists(p)), None)
+            if ktoa_path:
+                with open(ktoa_path, "rb") as f: _load_ktoa(f.read())
+                print(f"[자동로드] ktoa_day.xlsx 완료: {ktoa_path}")
+        else:
+            print("[자동로드] AUTOLOAD_EXCEL=0: 대용량 엑셀 자동 적재를 건너뜁니다. UI 업로드 버튼을 사용하세요.")
+    except Exception as e:
+        print(f"[자동로드 오류] {e}")
+    try:
+        _repair_sales_sanity(db)
+    except Exception as e:
+        print(f"[데이터 보정 호출 오류] {e}")
+    finally:
+        db.close()
     yield
 
 def _migrate(engine):
@@ -1086,6 +1097,15 @@ def _migrate(engine):
         add_col(conn, Subscriber.__tablename__, "agency_code VARCHAR DEFAULT ''")
         add_col(conn, Subscriber.__tablename__, "ref_date VARCHAR DEFAULT ''")
         add_col(conn, Subscriber.__tablename__, "sub_count INTEGER DEFAULT 0")
+        for col_def in [
+            "ref_month VARCHAR DEFAULT ''", "sale_date VARCHAR DEFAULT ''",
+            "bonbu VARCHAR DEFAULT ''", "team VARCHAR DEFAULT ''", "agency VARCHAR DEFAULT ''",
+            "agency_code VARCHAR DEFAULT ''", "store VARCHAR DEFAULT ''", "contact VARCHAR DEFAULT ''",
+            "channel VARCHAR DEFAULT ''", "sale INTEGER DEFAULT 0", "new_sale INTEGER DEFAULT 0",
+            "new010 INTEGER DEFAULT 0", "mnp INTEGER DEFAULT 0", "premium INTEGER DEFAULT 0",
+            "churn INTEGER DEFAULT 0", "revenue FLOAT DEFAULT 0", "arpu FLOAT DEFAULT 0"
+        ]:
+            add_col(conn, StoreSales.__tablename__, col_def)
 
 Base.metadata.create_all(bind=engine)
 _migrate(engine)
@@ -2057,6 +2077,140 @@ async def get_monthly_trend(
     finally:
         db.close()
 
+@app.get("/api/health")
+async def health():
+    db = SessionLocal()
+    try:
+        return {
+            "status": "ok",
+            "version": APP_VERSION,
+            "autoload_excel": AUTOLOAD_EXCEL,
+            "sales_rows": int(db.query(func.count(Sales.id)).scalar() or 0),
+            "store_sales_rows": int(db.query(func.count(StoreSales.id)).scalar() or 0),
+        }
+    finally:
+        db.close()
+
+@app.get("/api/version")
+async def version():
+    return {"version": APP_VERSION}
+# ── Market Intelligence APIs ─────────────────────────────────────
+def _market_db_path():
+    return os.getenv(
+        "MARKET_DB_PATH",
+        os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "market_automation",
+                "market_automation.db",
+            )
+        ),
+    )
+
+
+def _market_fetch(sql: str, params: tuple = ()):
+    import sqlite3
+
+    path = _market_db_path()
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return []
+
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+
+@app.get("/api/market/timeline")
+async def market_timeline(limit: int = 100):
+    rows = _market_fetch(
+        """
+        SELECT
+            id,
+            event_type,
+            carrier,
+            source_channel,
+            source_sender,
+            source_time,
+            raw_summary,
+            confidence
+        FROM market_events
+        ORDER BY source_time DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return {"items": rows}
+
+
+@app.get("/api/market/reports")
+async def market_reports(limit: int = 300):
+    rows = _market_fetch(
+        """
+        SELECT
+            report_date,
+            carrier,
+            agency_name,
+            model_name,
+            price_010,
+            price_mnp,
+            price_change,
+            notes
+        FROM market_report_rows
+        ORDER BY report_date DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return {"items": rows}
+
+
+@app.get("/api/market/rebate-status")
+async def market_rebate_status():
+    rows = _market_fetch(
+        """
+        SELECT
+            carrier,
+            model_group,
+            sales_type,
+            contract_type,
+            plan_band,
+            current_delta_krw,
+            last_updated_at
+        FROM current_policy_state
+        WHERE model_group != ''
+          AND model_group != 'UNKNOWN'
+        ORDER BY model_group, carrier, sales_type
+        """
+    )
+    return {"items": rows}
+
+
+@app.get("/api/market/competition")
+async def market_competition():
+    rows = _market_fetch(
+        """
+        SELECT
+            model_group,
+            MAX(CASE WHEN carrier='KT' THEN current_delta_krw END) AS kt_delta,
+            MAX(CASE WHEN carrier='SKT' THEN current_delta_krw END) AS skt_delta,
+            MAX(CASE WHEN carrier='LGU' THEN current_delta_krw END) AS lgu_delta,
+            COALESCE(MAX(CASE WHEN carrier='SKT' THEN current_delta_krw END), 0)
+              - COALESCE(MAX(CASE WHEN carrier='KT' THEN current_delta_krw END), 0) AS skt_vs_kt_gap,
+            COALESCE(MAX(CASE WHEN carrier='LGU' THEN current_delta_krw END), 0)
+              - COALESCE(MAX(CASE WHEN carrier='KT' THEN current_delta_krw END), 0) AS lgu_vs_kt_gap
+        FROM current_policy_state
+        WHERE model_group != ''
+          AND model_group != 'UNKNOWN'
+        GROUP BY model_group
+        ORDER BY model_group
+        """
+    )
+    return {"items": rows}
 @app.get("/",response_class=HTMLResponse)
 async def dashboard():
     with open(os.path.join(os.path.dirname(__file__),"templates","index.html"),encoding="utf-8") as f:

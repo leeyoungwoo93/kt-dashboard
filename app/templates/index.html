@@ -165,11 +165,12 @@ tr:hover td{background:#f0f8f8}
 .dev-lv-btn.active{background:var(--t1);color:#fff;border-color:var(--t1)}
 .dev-drill-btn{background:#fff3e0;border:1px solid #ffc94d;border-radius:4px;padding:2px 7px;font-size:9px;color:#e67700;cursor:pointer;font-weight:700}
 .dev-drill-btn.active{background:#e67700;color:#fff;border-color:#e67700}
+.ver-badge{display:inline-block;margin-top:3px;padding:2px 6px;border-radius:999px;background:#f0f8f8;color:var(--t1);font-size:9px;font-weight:800}
 </style>
 </head>
 <body>
 <div class="hdr">
-  <div><h1>📡 KT 무선판매 전략 대시보드</h1><p class="hdr-sub" id="lastUpdate">데이터를 업로드해주세요</p></div>
+  <div><h1>📡 KT 무선판매 전략 대시보드</h1><p class="hdr-sub" id="lastUpdate">데이터를 업로드해주세요</p><span class="ver-badge" id="appVersionBadge">v4 · 월별추이/소매매장실적</span></div>
   <div class="hdr-right">
     <span id="uploadStatus" style="font-size:9px;opacity:.8"></span>
     <input type="file" id="fSales" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fSales').click()">📊 판매</button>
@@ -3014,9 +3015,13 @@ function renderPolicyMemos(){
 }
 
 // ─── 업데이트 알림 시스템 ───
-const DASHBOARD_VERSION='2026-04-23-v6';
+const DASHBOARD_VERSION='2026-04-27-v4-retail-monthly';
 const UPDATE_LOG=[
-  {version:'2026-04-23-v6',date:'2026-04-23',changes:[
+  {version:'2026-04-27-v4-retail-monthly',date:'2026-04-27',changes:[
+    '✅ ⑪ 월별추이 탭 추가: 월별 판매·신규·MNP·해지·기변·ARPU 추이',
+    '✅ ⑫ 소매 매장실적 탭 추가: 매장/대리점/담당/본부/채널별 집계',
+    '✅ Railway 배포 안정화: 대용량 엑셀 자동 적재 기본 OFF, UI 업로드 방식 권장',
+    '✅ 탭 전환 id 기반 안정화: 신규 탭 추가 시 기존 탭 깨짐 방지',
     '✅ ⑨ 가입자분석 탭 신설 (유지가입자 변동·추이·구분별 분석)',
     '✅ 조직탭: 판매+ARPU 콤보 차트, 목표달성률 차트, 유사대리점 비교',
     '✅ KTOA탭: MNO/MVNO/전체 필터 + 기간 필터',
@@ -3541,6 +3546,7 @@ async function init(){
   if(currentTab===9)renderTab9();
   if(currentTab===10)renderTab10();
   if(currentTab===11)renderTab11();
+  fetch('/api/version').then(r=>r.json()).then(v=>{const b=document.getElementById('appVersionBadge'); if(b&&v.version)b.textContent=v.version+' · 월별추이/소매매장실적';}).catch(()=>{});
   // 초기화 완료 후 업데이트 알림 체크
   setTimeout(checkUpdate, 800);
   // 정책 메모 초기 렌더링
