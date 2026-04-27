@@ -177,6 +177,7 @@ tr:hover td{background:#f0f8f8}
     <input type="file" id="fInv" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fInv').click()">📦 재고</button>
     <input type="file" id="fSub" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fSub').click()">👥 가입자</button>
     <input type="file" id="fComm" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fComm').click()">💰 수수료</button>
+    <input type="file" id="fStoreSales" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fStoreSales').click()">🏪 소매</button>
     <input type="file" id="fKtoa" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fKtoa').click()">📡 KTOA</button>
   </div>
 </div>
@@ -191,6 +192,8 @@ tr:hover td{background:#f0f8f8}
   <div class="tab" onclick="switchTab(7)" style="color:var(--t1)">⑧ 판매정책·경쟁분석</div>
   <div class="tab" onclick="switchTab(8)">⑨ 가입자분석</div>
   <div class="tab" onclick="switchTab(9)" style="color:#e67700">⑩ 시장정보</div>
+  <div class="tab" onclick="switchTab(10)" style="color:#0077cc;font-weight:700">⑪ 월별추이</div>
+  <div class="tab" onclick="switchTab(11)" style="color:var(--t1);font-weight:700">⑫ 소매 매장실적</div>
 </div>
 <div class="global-fb">
   <div><div class="fb-label">기준월</div>
@@ -826,6 +829,134 @@ tr:hover td{background:#f0f8f8}
   </div>
 </div>
 
+<!-- ══ TAB 10: 월별 추이 ══════════════════════════════════════════ -->
+<div class="tab-panel" id="tab10" style="display:none">
+  <!-- KPI 요약 -->
+  <div id="kpiRow10" class="krow k6" style="margin-bottom:10px"></div>
+
+  <!-- 지표 선택 서브탭 -->
+  <div style="display:flex;gap:4px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--muted);margin-right:4px">지표 선택:</span>
+    <button class="dev-lv-btn active" id="mBtn_sale" onclick="setTrendMetric('sale')">판매량</button>
+    <button class="dev-lv-btn" id="mBtn_new_sale" onclick="setTrendMetric('new_sale')">신규</button>
+    <button class="dev-lv-btn" id="mBtn_n010" onclick="setTrendMetric('n010')">010신규</button>
+    <button class="dev-lv-btn" id="mBtn_mnp" onclick="setTrendMetric('mnp')">총MNP</button>
+    <button class="dev-lv-btn" id="mBtn_churn" onclick="setTrendMetric('churn')">해지</button>
+    <button class="dev-lv-btn" id="mBtn_premium" onclick="setTrendMetric('premium')">기변</button>
+    <button class="dev-lv-btn" id="mBtn_arpu" onclick="setTrendMetric('arpu')">ARPU</button>
+    <button class="dev-lv-btn" id="mBtn_revenue" onclick="setTrendMetric('revenue')">매출</button>
+  </div>
+
+  <!-- 상단: 전체 추이 + MoM -->
+  <div class="row r2" style="margin-bottom:10px">
+    <div class="card" style="flex:2">
+      <div class="ch"><div class="ct" id="trendMainTitle">월별 판매량 추이</div><div class="cs">전월대비 증감률 포함</div></div>
+      <div style="position:relative;height:220px"><canvas id="trendMainChart" role="img" aria-label="월별 전체 판매량 추이"></canvas></div>
+    </div>
+    <div class="card" style="flex:1">
+      <div class="ch"><div class="ct">전월 대비 증감</div><div class="cs">MoM %</div></div>
+      <div style="position:relative;height:220px"><canvas id="trendMomChart" role="img" aria-label="월별 전월대비 증감률"></canvas></div>
+    </div>
+  </div>
+
+  <!-- 중단: 본부별 추이 + 채널별 추이 -->
+  <div class="row r2" style="margin-bottom:10px">
+    <div class="card">
+      <div class="ch"><div class="ct">본부별 월별 추이</div><div class="cs">상위 7 본부</div></div>
+      <div style="position:relative;height:250px"><canvas id="trendBonbuChart" role="img" aria-label="본부별 월별 추이"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ct">채널별 월별 추이</div><div class="cs">상위 6 채널</div></div>
+      <div style="position:relative;height:250px"><canvas id="trendChChart" role="img" aria-label="채널별 월별 추이"></canvas></div>
+    </div>
+  </div>
+
+  <!-- 복합 지표 라인차트 (판매/신규/MNP/해지 동시) -->
+  <div class="card" style="margin-bottom:10px">
+    <div class="ch">
+      <div class="ct">월별 복합 지표 추이</div>
+      <div class="cs">판매·신규·MNP·해지·기변 동시 비교</div>
+      <div style="display:flex;gap:4px;margin-left:auto">
+        <button class="dev-lv-btn active" id="multiBtn_abs" onclick="setMultiView('abs')">절대값</button>
+        <button class="dev-lv-btn" id="multiBtn_idx" onclick="setMultiView('idx')">지수(첫달=100)</button>
+      </div>
+    </div>
+    <div style="position:relative;height:260px"><canvas id="trendMultiChart" role="img" aria-label="월별 복합지표 추이"></canvas></div>
+  </div>
+
+  <!-- 본부×월 히트맵 -->
+  <div class="card" style="margin-bottom:10px">
+    <div class="ch"><div class="ct">본부×월 판매 히트맵</div><div class="cs">색이 진할수록 판매량 높음</div></div>
+    <div id="trendHeatmap" style="overflow-x:auto"></div>
+  </div>
+
+  <!-- 월별 상세 테이블 -->
+  <div class="card">
+    <div class="ch"><div class="ct">월별 상세 실적 테이블</div><div class="cs">전월대비 증감 포함</div></div>
+    <div class="tw"><table id="trendTable">
+      <thead><tr>
+        <th>기준월</th>
+        <th class="num">판매량</th><th class="pct">MoM</th>
+        <th class="num">신규</th><th class="num">010신규</th>
+        <th class="num">MNP</th><th class="num">기변</th>
+        <th class="num">해지</th><th class="num">순증</th>
+        <th class="num">ARPU</th><th class="num">매출(억)</th>
+      </tr></thead>
+      <tbody id="trendTbody"></tbody>
+    </table></div>
+  </div>
+
+</div>
+
+<!-- ══ TAB 11: 소매 매장실적 ═══════════════════════════════════════ -->
+<div class="tab-panel" id="tab11" style="display:none">
+  <div id="kpiRow11" class="krow k6" style="margin-bottom:10px"></div>
+
+  <div style="display:flex;gap:4px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--muted);margin-right:4px">집계 기준:</span>
+    <button class="dev-lv-btn active" id="storeView_store" onclick="setStoreView('store')">매장</button>
+    <button class="dev-lv-btn" id="storeView_agency" onclick="setStoreView('agency')">대리점</button>
+    <button class="dev-lv-btn" id="storeView_team" onclick="setStoreView('team')">담당·지사</button>
+    <button class="dev-lv-btn" id="storeView_bonbu" onclick="setStoreView('bonbu')">본부</button>
+    <button class="dev-lv-btn" id="storeView_channel" onclick="setStoreView('channel')">채널</button>
+    <span id="storeStatus" style="font-size:10px;color:var(--muted);margin-left:8px"></span>
+  </div>
+
+  <div class="row r2" style="margin-bottom:10px">
+    <div class="card" style="flex:2">
+      <div class="ch"><div class="ct">소매 월별 추이</div><div class="cs">판매·신규·해지·순증</div></div>
+      <div style="position:relative;height:230px"><canvas id="storeTrendChart" role="img" aria-label="소매 월별 추이"></canvas></div>
+    </div>
+    <div class="card" style="flex:1">
+      <div class="ch"><div class="ct">소매 채널 구성</div><div class="cs">판매량 기준</div></div>
+      <div style="position:relative;height:230px"><canvas id="storeChannelChart" role="img" aria-label="소매 채널 구성"></canvas></div>
+    </div>
+  </div>
+
+  <div class="row r2" style="margin-bottom:10px">
+    <div class="card">
+      <div class="ch"><div class="ct" id="storeTopTitle">매장별 판매 TOP</div><div class="cs">클릭 시 상세 테이블과 동일 기준</div></div>
+      <div style="position:relative;height:300px"><canvas id="storeTopChart" role="img" aria-label="소매 매장 판매 TOP"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ct">소매 성과 믹스</div><div class="cs">신규·MNP·기변·해지</div></div>
+      <div style="position:relative;height:300px"><canvas id="storeMixChart" role="img" aria-label="소매 성과 믹스"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><div class="ct" id="storeTableTitle">소매 매장실적 상세</div><div class="cs">기준월·본부·담당·채널 필터 연동</div></div>
+    <div class="tw"><table>
+      <thead><tr>
+        <th>#</th><th id="storeNameHdr">매장</th>
+        <th class="num">판매</th><th class="num">신규</th><th class="num">010</th><th class="num">MNP</th>
+        <th class="num">기변</th><th class="num">해지</th><th class="num">순증</th><th class="num">ARPU</th><th class="num">매출(억)</th>
+      </tr></thead>
+      <tbody id="storeTbody"></tbody>
+    </table></div>
+  </div>
+</div>
+
 <script>
 // ═══ 전역 상태 변수 (최상단 선언) ═══════════════════════════
 let D=null, KTOA=null;
@@ -840,6 +971,7 @@ let _commView='ai';
 let _ktoaFilter='MNO';
 let _mktReg='수도권', _mktType='공통', _mktSub='MNP', _mktTab=0;
 let _mktPolicies=[];
+let _storeData=null, _storeView='store';
 try{_mktPolicies=JSON.parse(localStorage.getItem('kt_mkt_policies')||'[]');}catch(e){}
 let _goals={};
 try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
@@ -1221,14 +1353,19 @@ async function loadData(){
 
 function switchTab(i){
   document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
-  document.querySelectorAll('.tab-panel').forEach((p,j)=>p.classList.toggle('active',i===j));
-  currentTab=i;renderTab(i);
+  document.querySelectorAll('.tab-panel').forEach(p=>{p.style.display='none';p.classList.remove('active');});
+  const panel=document.getElementById(`tab${i}`);
+  if(panel){panel.style.display='block';panel.classList.add('active');}
+  currentTab=i;
+  renderTab(i);
 }
 function renderTab(i){
-  if(!D&&i<7&&i!==6&&i!==8&&i!==9)return;
   if(i===6){renderTab6();return;}
   if(i===8){renderTab8(D);return;}
   if(i===9){renderTab9();return;}
+  if(i===10){renderTab10();return;}
+  if(i===11){renderTab11();return;}
+  if(!D&&[0,1,2,3,4,5,7].includes(i))return;
   [renderTab0,renderTab1,renderTab2,renderTab3,renderTab4,renderTab5,renderTab6,renderTab7,renderTab8,renderTab9][i]?.(D);
 }
 
@@ -2910,11 +3047,479 @@ function dismissUpdate(){
   document.getElementById('updateModal').classList.remove('open');
 }
 
+// ═══ TAB 10: 월별 추이 ═══════════════════════════════════════════
 
+let _trendData=null, _trendMetric='sale', _trendMultiView='abs';
+
+const TREND_METRIC_LABEL={
+  sale:'판매량',new_sale:'신규판매',n010:'010신규',mnp:'총MNP',
+  churn:'해지',premium:'기변',arpu:'ARPU',revenue:'매출(억)',
+};
+const TREND_COLORS=['#0077cc','#e63027','#00a878','#e67700','#7b2d8b','#c0392b','#2980b9','#27ae60'];
+const MULTI_METRICS=[
+  {key:'sale',label:'판매량',color:'#0077cc',yAxis:'y'},
+  {key:'new_sale',label:'신규',color:'#00a878',yAxis:'y'},
+  {key:'mnp',label:'MNP',color:'#e67700',yAxis:'y'},
+  {key:'churn',label:'해지',color:'#e63027',yAxis:'y'},
+  {key:'premium',label:'기변',color:'#7b2d8b',yAxis:'y'},
+];
+
+function setTrendMetric(m){
+  _trendMetric=m;
+  Object.keys(TREND_METRIC_LABEL).forEach(k=>{
+    const btn=document.getElementById('mBtn_'+k);
+    if(btn)btn.classList.toggle('active',k===m);
+  });
+  renderTrendCharts();
+}
+
+function setMultiView(v){
+  _trendMultiView=v;
+  ['abs','idx'].forEach(k=>{
+    const btn=document.getElementById('multiBtn_'+k);
+    if(btn)btn.classList.toggle('active',k===v);
+  });
+  renderMultiChart();
+}
+
+function fmtMonthLabel(mm){
+  if(!mm||mm.length<6)return mm;
+  return mm.slice(2,4)+'-'+mm.slice(4,6);
+}
+function fmtMonthFull(mm){
+  if(!mm||mm.length<6)return mm;
+  return mm.slice(0,4)+'년 '+mm.slice(4,6)+'월';
+}
+
+async function renderTab10(){
+  const panel=document.getElementById('tab10');
+  if(!panel)return;
+  // 로딩 표시
+  document.getElementById('trendTbody').innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted)">데이터 로딩 중...</td></tr>';
+
+  const p=new URLSearchParams();
+  selBonbu.forEach(b=>p.append('bonbu_list',b));
+  selTeam.forEach(t=>p.append('team_list',t));
+  selCh.forEach(c=>p.append('channel_list',c));
+  p.append('metric',_trendMetric);
+
+  try{
+    const res=await fetch('/api/monthly-trend?'+p);
+    _trendData=await res.json();
+  }catch(e){
+    document.getElementById('trendTbody').innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px;color:red">데이터 로드 실패</td></tr>';
+    return;
+  }
+
+  if(!_trendData||!_trendData.months||_trendData.months.length===0){
+    document.getElementById('trendTbody').innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted)">📋 판매 데이터를 업로드하면 월별 추이가 표시됩니다<br><small>여러 달 데이터를 업로드할수록 더 풍부한 추이 분석이 가능합니다</small></td></tr>';
+    return;
+  }
+
+  renderTrendKPI();
+  renderTrendCharts();
+  renderTrendTable();
+}
+
+function renderTrendKPI(){
+  if(!_trendData)return;
+  const multi=_trendData.multi||[];
+  if(multi.length===0)return;
+  const latest=multi[multi.length-1];
+  const prev=multi.length>1?multi[multi.length-2]:null;
+  const months=_trendData.months;
+
+  const momStr=(key)=>{
+    if(!prev||!prev[key]||prev[key]===0)return '';
+    const pct=((latest[key]-prev[key])/prev[key]*100).toFixed(1);
+    const dir=pct>0?'▲':'▼';
+    const color=pct>0?'#00a878':'#e63027';
+    return ` <span style="color:${color};font-size:9px">${dir}${Math.abs(pct)}%</span>`;
+  };
+
+  kpiRow('kpiRow10',[
+    {label:'데이터 기간',val:`${fmtMonthLabel(months[0])} ~ ${fmtMonthLabel(months[months.length-1])}`,sub:`${months.length}개월`},
+    {label:'최근월 판매',val:fmt(latest.sale||0),sub:'건'+momStr('sale')},
+    {label:'최근월 신규',val:fmt(latest.new_sale||0),sub:'건'+momStr('new_sale')},
+    {label:'최근월 MNP',val:fmt(latest.mnp||0),sub:'건'+momStr('mnp')},
+    {label:'최근월 순증',val:fmt(latest.net||0),sub:'건'},
+    {label:'최근월 ARPU',val:fmt(latest.arpu||0),sub:'원'+momStr('arpu')},
+  ]);
+}
+
+function renderTrendCharts(){
+  if(!_trendData)return;
+  const months=_trendData.months;
+  const labels=months.map(fmtMonthLabel);
+  const total=_trendData.total||[];
+  const bonbu=_trendData.bonbu||[];
+  const channel=_trendData.channel||[];
+  const metricLabel=TREND_METRIC_LABEL[_trendMetric]||_trendMetric;
+
+  // 제목 업데이트
+  const titleEl=document.getElementById('trendMainTitle');
+  if(titleEl)titleEl.textContent=`월별 ${metricLabel} 추이`;
+
+  // 메인 추이 차트 (막대+선)
+  dc('trendMainChart');
+  const mainEl=document.getElementById('trendMainChart');
+  if(mainEl&&total.length){
+    const vals=total.map(t=>t.value||0);
+    charts['trendMainChart']=new Chart(mainEl,{
+      type:'bar',
+      data:{labels,datasets:[
+        {label:metricLabel,data:vals,backgroundColor:labels.map((_,i)=>i===labels.length-1?T1+'ee':T1+'88'),borderRadius:4,order:2},
+        {label:'추세',data:vals,type:'line',borderColor:BLU,borderWidth:2,pointRadius:3,pointBackgroundColor:BLU,fill:false,tension:0.3,order:1},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          datalabels:{display:ctx=>ctx.datasetIndex===0,formatter:v=>fmt(v),color:'#fff',anchor:'center',align:'center',font:{size:8,weight:'bold'},clamp:true,display:ctx=>ctx.dataset.data[ctx.dataIndex]>=(Math.max(...vals)*0.05)}},
+        scales:{x:{ticks:{font:{size:9}},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:8},callback:v=>_trendMetric==='revenue'?(v/1e8).toFixed(0)+'억':_trendMetric==='arpu'?fmt(v):fmt(v)}}}}});
+  }
+
+  // MoM 차트
+  dc('trendMomChart');
+  const momEl=document.getElementById('trendMomChart');
+  if(momEl&&total.length>1){
+    const momVals=total.map(t=>t.mom);
+    charts['trendMomChart']=new Chart(momEl,{
+      type:'bar',
+      data:{labels,datasets:[{
+        label:'전월대비(%)',data:momVals,
+        backgroundColor:momVals.map(v=>v===null?'#ccc':v>0?'#00a878bb':'#e63027bb'),
+        borderRadius:3,
+      }]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          datalabels:{display:true,formatter:v=>v===null?'첫달':v+'%',color:'#fff',anchor:'end',align:'end',font:{size:8,weight:'bold'},clamp:true}},
+        scales:{x:{ticks:{font:{size:9}},grid:{display:false}},y:{ticks:{font:{size:8},callback:v=>v+'%'}}}}});
+  }
+
+  // 본부별 추이 (멀티라인)
+  dc('trendBonbuChart');
+  const bonbuEl=document.getElementById('trendBonbuChart');
+  if(bonbuEl&&bonbu.length){
+    charts['trendBonbuChart']=new Chart(bonbuEl,{
+      type:'line',
+      data:{labels,datasets:bonbu.map((b,i)=>({
+        label:b.name,data:b.data,
+        borderColor:TREND_COLORS[i%TREND_COLORS.length],
+        backgroundColor:TREND_COLORS[i%TREND_COLORS.length]+'22',
+        borderWidth:2,pointRadius:3,tension:0.3,fill:false,
+      }))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{font:{size:9},boxWidth:10}},datalabels:{display:false}},
+        scales:{x:{ticks:{font:{size:9}}},y:{beginAtZero:true,ticks:{font:{size:8},callback:v=>fmt(v)}}}}});
+  }
+
+  // 채널별 추이 (멀티라인)
+  dc('trendChChart');
+  const chEl=document.getElementById('trendChChart');
+  if(chEl&&channel.length){
+    charts['trendChChart']=new Chart(chEl,{
+      type:'line',
+      data:{labels,datasets:channel.map((c,i)=>({
+        label:c.name.length>10?c.name.slice(0,10)+'…':c.name,data:c.data,
+        borderColor:TREND_COLORS[i%TREND_COLORS.length],
+        borderWidth:2,pointRadius:3,tension:0.3,fill:false,
+      }))},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'top',labels:{font:{size:8},boxWidth:8}},datalabels:{display:false}},
+        scales:{x:{ticks:{font:{size:9}}},y:{beginAtZero:true,ticks:{font:{size:8},callback:v=>fmt(v)}}}}});
+  }
+
+  // 복합 지표 차트
+  renderMultiChart();
+  // 히트맵
+  renderHeatmap();
+}
+
+function renderMultiChart(){
+  if(!_trendData)return;
+  const months=_trendData.months;
+  const labels=months.map(fmtMonthLabel);
+  const multi=_trendData.multi||[];
+  if(!multi.length)return;
+
+  dc('trendMultiChart');
+  const el=document.getElementById('trendMultiChart');
+  if(!el)return;
+
+  const datasets=MULTI_METRICS.map(m=>{
+    let data=multi.map(r=>r[m.key]||0);
+    if(_trendMultiView==='idx'&&data[0]>0){
+      const base=data[0];
+      data=data.map(v=>Math.round(v/base*100));
+    }
+    return {
+      label:m.label,data,
+      borderColor:m.color,backgroundColor:m.color+'22',
+      borderWidth:2,pointRadius:3,tension:0.3,fill:false,
+    };
+  });
+
+  charts['trendMultiChart']=new Chart(el,{
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'top',labels:{font:{size:10},boxWidth:12}},
+        datalabels:{display:false},
+        tooltip:{mode:'index',intersect:false},
+      },
+      scales:{
+        x:{ticks:{font:{size:9}},grid:{display:false}},
+        y:{beginAtZero:true,ticks:{font:{size:8},callback:v=>_trendMultiView==='idx'?v:fmt(v)}},
+      },
+      interaction:{mode:'index',intersect:false},
+    }
+  });
+}
+
+function renderHeatmap(){
+  if(!_trendData)return;
+  const months=_trendData.months;
+  const heatmap=_trendData.heatmap||[];
+  if(!heatmap.length||!months.length){
+    document.getElementById('trendHeatmap').innerHTML='<div style="padding:20px;color:var(--muted);text-align:center">데이터 없음</div>';
+    return;
+  }
+
+  // 전체 max값 계산 (색상 스케일 기준)
+  let maxVal=0;
+  heatmap.forEach(row=>months.forEach(m=>{if((row.months[m]||0)>maxVal)maxVal=row.months[m]||0;}));
+
+  const cellW=Math.max(50, Math.floor(640/months.length));
+  let html=`<table style="border-collapse:collapse;font-size:9px;width:100%">`;
+  // 헤더
+  html+=`<thead><tr><th style="padding:4px 8px;text-align:left;min-width:120px;color:var(--sub)">본부</th>`;
+  months.forEach(m=>{ html+=`<th style="padding:4px;text-align:center;min-width:${cellW}px;color:var(--sub)">${fmtMonthLabel(m)}</th>`; });
+  html+=`<th style="padding:4px;text-align:center;color:var(--sub)">합계</th></tr></thead><tbody>`;
+
+  heatmap.forEach(row=>{
+    const total=months.reduce((s,m)=>s+(row.months[m]||0),0);
+    html+=`<tr><td style="padding:4px 8px;font-weight:700;color:var(--fg);white-space:nowrap">${row.bonbu}</td>`;
+    months.forEach(m=>{
+      const v=row.months[m]||0;
+      const pct=maxVal>0?v/maxVal:0;
+      // 파란색 계열 히트맵
+      const alpha=Math.round(pct*220+20);
+      const bg=`rgba(0,119,204,${(pct*0.8+0.05).toFixed(2)})`;
+      const textColor=pct>0.5?'#fff':'var(--fg)';
+      html+=`<td style="padding:4px;text-align:center;background:${v>0?bg:'transparent'};color:${v>0?textColor:'var(--muted)'};border-radius:3px;min-width:${cellW}px">${v>0?fmt(v):'-'}</td>`;
+    });
+    html+=`<td style="padding:4px;text-align:center;font-weight:700;color:var(--t1)">${fmt(total)}</td></tr>`;
+  });
+  html+=`</tbody></table>`;
+  document.getElementById('trendHeatmap').innerHTML=html;
+}
+
+function renderTrendTable(){
+  if(!_trendData)return;
+  const multi=_trendData.multi||[];
+  if(!multi.length){
+    document.getElementById('trendTbody').innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted)">데이터 없음</td></tr>';
+    return;
+  }
+
+  const tbody=document.getElementById('trendTbody');
+  tbody.innerHTML=multi.slice().reverse().map((r,i)=>{
+    const prev=i<multi.length-1?multi[multi.length-2-i]:null;
+    const mom=prev&&prev.sale>0?((r.sale-prev.sale)/prev.sale*100).toFixed(1):null;
+    const momColor=mom>0?'color:#00a878':mom<0?'color:#e63027':'';
+    const momDir=mom>0?'▲':mom<0?'▼':'';
+    return `<tr>
+      <td style="font-weight:700">${fmtMonthFull(r.month)}</td>
+      <td class="num" style="font-weight:700;color:${T1}">${fmt(r.sale||0)}</td>
+      <td class="pct" style="${momColor}">${mom!==null?momDir+Math.abs(mom)+'%':'-'}</td>
+      <td class="num">${fmt(r.new_sale||0)}</td>
+      <td class="num">${fmt(r.n010||0)}</td>
+      <td class="num">${fmt(r.mnp||0)}</td>
+      <td class="num">${fmt(r.premium||0)}</td>
+      <td class="num">${fmt(r.churn||0)}</td>
+      <td class="num" style="color:${(r.net||0)>=0?'#00a878':'#e63027'};font-weight:700">${fmt(r.net||0)}</td>
+      <td class="num">${fmt(r.arpu||0)}</td>
+      <td class="num">${r.revenue?(r.revenue/1e8).toFixed(2):'-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+
+
+
+async function refreshFiltersKeepSelection(){
+  try{
+    const f=await(await fetch('/api/filters')).json();
+    buildDD('listBonbu',f.bonbu_list||[],selBonbu,'toggleBonbu',null);
+    buildDD('listTeam',f.team_list||[],selTeam,'toggleTeam',null);
+    buildDD('listCh',f.channel_list||[],selCh,'toggleCh',shortCh);
+    if(f.policy_list)buildDD('listPolicy',f.policy_list,selPolicy,'togglePolicy',null);
+    if(f.month_list)buildDD('listMonth',f.month_list,selMonth,'toggleMonth',fmtMonth);
+    agList=f.agency_list||[];
+  }catch(e){console.warn('[필터 갱신 오류]',e);}
+}
+
+async function uploadExcel(inputId,url,label){
+  const input=document.getElementById(inputId);
+  if(!input||!input.files||!input.files[0])return;
+  const fd=new FormData();
+  fd.append('file',input.files[0]);
+  const st=document.getElementById('uploadStatus');
+  if(st)st.textContent=`${label} 업로드 중...`;
+  try{
+    const res=await fetch(url,{method:'POST',body:fd});
+    const js=await res.json().catch(()=>({status:'실패',error:'응답 파싱 실패'}));
+    if(!res.ok||js.status==='실패')throw new Error(js.error||('HTTP '+res.status));
+    if(st)st.textContent=`${label} 업로드 완료${js.rows!==undefined?` (${fmt(js.rows)}행)`:''}`;
+    await refreshFiltersKeepSelection();
+    await loadData();
+    renderTab(currentTab);
+  }catch(e){
+    console.error(`[${label} 업로드 오류]`,e);
+    if(st)st.textContent=`${label} 업로드 실패: ${e.message}`;
+    alert(`${label} 업로드 실패\n${e.message}`);
+  }finally{
+    input.value='';
+  }
+}
+function bindUpload(inputId,url,label){
+  const el=document.getElementById(inputId);
+  if(!el||el.dataset.bound==='1')return;
+  el.dataset.bound='1';
+  el.addEventListener('change',()=>uploadExcel(inputId,url,label));
+}
+
+function setStoreView(v){
+  _storeView=v;
+  ['store','agency','team','bonbu','channel'].forEach(k=>{
+    const b=document.getElementById('storeView_'+k);
+    if(b)b.classList.toggle('active',k===v);
+  });
+  renderTab11();
+}
+function storeViewLabel(){return {store:'매장',agency:'대리점',team:'담당·지사',bonbu:'본부',channel:'채널'}[_storeView]||'매장';}
+function fmtStoreMonth(mm){return mm&&mm.length>=6?mm.slice(2,4)+'-'+mm.slice(4,6):mm;}
+
+async function renderTab11(){
+  const tbody=document.getElementById('storeTbody');
+  if(!tbody)return;
+  tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted)">소매 매장실적 로딩 중...</td></tr>';
+  const p=new URLSearchParams();
+  p.append('view',_storeView);
+  p.append('limit','80');
+  selBonbu.forEach(b=>p.append('bonbu_list',b));
+  selTeam.forEach(t=>p.append('team_list',t));
+  selCh.forEach(c=>p.append('channel_list',c));
+  selMonth.forEach(m=>p.append('yyyymm_list',m));
+  if(curAgency)p.append('agency',curAgency);
+  try{
+    const res=await fetch('/api/store-sales?'+p);
+    if(!res.ok)throw new Error('API '+res.status);
+    _storeData=await res.json();
+  }catch(e){
+    console.error('[소매 매장실적 오류]',e);
+    tbody.innerHTML=`<tr><td colspan="11" style="text-align:center;padding:20px;color:${RED}">소매 매장실적 로드 실패: ${e.message}</td></tr>`;
+    return;
+  }
+  const items=_storeData.items||[];
+  const totals=_storeData.totals||{};
+  const status=document.getElementById('storeStatus');
+  if(status)status.textContent=items.length?`${storeViewLabel()} ${fmt(items.length)}개 표시`:'표시할 데이터 없음';
+  if(!items.length&&!(totals.sale>0)){
+    kpiRow('kpiRow11',[
+      {label:'소매 데이터',val:'없음',sub:'상단 🏪 소매 버튼으로 storesales.xlsx 업로드'},
+      {label:'필터',val:selMonth.size?[...selMonth].map(fmtMonth).join(', '):'전체',sub:'기준월 필터 연동'},
+      {label:'집계 기준',val:storeViewLabel(),sub:'매장/대리점/담당/본부/채널'},
+    ]);
+    ['storeTrendChart','storeChannelChart','storeTopChart','storeMixChart'].forEach(dc);
+    tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">🏪 소매 매장실적 파일을 업로드하면 매장별 실적이 표시됩니다.</td></tr>';
+    return;
+  }
+  renderStoreKPI();
+  renderStoreCharts();
+  renderStoreTable();
+}
+
+function renderStoreKPI(){
+  const t=(_storeData&&_storeData.totals)||{};
+  const trend=(_storeData&&_storeData.trend)||[];
+  const latest=trend.length?trend[trend.length-1]:null;
+  const mom=latest&&latest.mom!==null&&latest.mom!==undefined?`${latest.mom>=0?'▲':'▼'}${Math.abs(latest.mom)}%`:'';
+  kpiRow('kpiRow11',[
+    {label:'소매 총판매',val:fmt(t.sale||0),sub:latest?`${fmtStoreMonth(latest.month)} ${mom}`:'건'},
+    {label:'신규',val:fmt(t.new_sale||0),sub:`010 ${fmt(t.n010||0)} / MNP ${fmt(t.mnp||0)}`},
+    {label:'기변',val:fmt(t.premium||0),sub:'우수기변'},
+    {label:'해지',val:fmt(t.churn||0),sub:`순증 ${fmt(t.net||0)}`},
+    {label:'ARPU',val:fmt(t.arpu||0),sub:'판매 가중평균'},
+    {label:'매장/대리점',val:`${fmt(t.store_count||0)} / ${fmt(t.agency_count||0)}`,sub:'distinct 기준'},
+  ]);
+}
+
+function renderStoreCharts(){
+  const d=_storeData||{}, items=d.items||[], trend=d.trend||[], channels=d.channels||[];
+  const labels=trend.map(x=>fmtStoreMonth(x.month));
+  dc('storeTrendChart');
+  const tel=document.getElementById('storeTrendChart');
+  if(tel&&trend.length){
+    charts['storeTrendChart']=new Chart(tel,{type:'line',data:{labels,datasets:[
+      {label:'판매',data:trend.map(x=>x.sale||0),borderColor:T1,backgroundColor:T1+'22',borderWidth:2,pointRadius:3,tension:.3},
+      {label:'신규',data:trend.map(x=>x.new_sale||0),borderColor:BLU,backgroundColor:BLU+'22',borderWidth:2,pointRadius:3,tension:.3},
+      {label:'해지',data:trend.map(x=>x.churn||0),borderColor:RED,backgroundColor:RED+'22',borderWidth:2,pointRadius:3,tension:.3},
+      {label:'순증',data:trend.map(x=>x.net||0),borderColor:AMB,backgroundColor:AMB+'22',borderWidth:2,pointRadius:3,tension:.3},
+    ]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom',labels:{font:{size:9},boxWidth:10}},datalabels:{display:false}},scales:{x:{ticks:{font:{size:9}},grid:{display:false}},y:{ticks:{font:{size:8},callback:v=>fmt(v)},grid:{color:'#f0f0f0'}}}}});
+  }
+  dc('storeTopChart');
+  const top=items.slice(0,20).map(x=>({n:x.name,v:x.sale||0}));
+  barH('storeTopChart',top,{fs:8});
+  const title=document.getElementById('storeTopTitle');
+  if(title)title.textContent=`${storeViewLabel()}별 판매 TOP`;
+  if(channels.length)pie('storeChannelChart',channels.map(x=>shortCh(x.name)),channels.map(x=>x.value),true); else dc('storeChannelChart');
+  dc('storeMixChart');
+  const mel=document.getElementById('storeMixChart');
+  const t=d.totals||{};
+  if(mel){
+    charts['storeMixChart']=new Chart(mel,{type:'bar',data:{labels:['신규','010','MNP','기변','해지','순증'],datasets:[{data:[t.new_sale||0,t.n010||0,t.mnp||0,t.premium||0,t.churn||0,t.net||0],backgroundColor:[T1,T2,BLU,AMB,RED,(t.net||0)>=0?GRN:RED],borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},datalabels:{display:true,formatter:v=>fmt(v),color:'#fff',font:{size:9,weight:'bold'},anchor:'center',align:'center',clamp:true}},scales:{x:{grid:{display:false},ticks:{font:{size:10}}},y:{beginAtZero:false,ticks:{font:{size:8},callback:v=>fmt(v)}}}}});
+  }
+}
+
+function renderStoreTable(){
+  const items=(_storeData&&_storeData.items)||[];
+  const tbody=document.getElementById('storeTbody');
+  const hdr=document.getElementById('storeNameHdr');
+  const ttl=document.getElementById('storeTableTitle');
+  if(hdr)hdr.textContent=storeViewLabel();
+  if(ttl)ttl.textContent=`소매 ${storeViewLabel()}실적 상세`;
+  if(!tbody)return;
+  tbody.innerHTML=items.map((r,i)=>`<tr>
+      <td>${i+1}</td><td>${r.name||'-'}</td>
+      <td class="num"><b>${fmt(r.sale||0)}</b></td>
+      <td class="num">${fmt(r.new_sale||0)}</td>
+      <td class="num">${fmt(r.n010||0)}</td>
+      <td class="num">${fmt(r.mnp||0)}</td>
+      <td class="num">${fmt(r.premium||0)}</td>
+      <td class="num">${fmt(r.churn||0)}</td>
+      <td class="num" style="color:${(r.net||0)>=0?GRN:RED};font-weight:700">${fmt(r.net||0)}</td>
+      <td class="num">${fmt(r.arpu||0)}</td>
+      <td class="num">${r.revenue?(r.revenue/1e8).toFixed(2):'-'}</td>
+    </tr>`).join('');
+}
 
 /* GPT enhancement patch removed: reverted to stable baseline. */
 
 async function init(){
+  // 탭 패널 초기 표시 설정: DOM 순서가 아니라 id 기준으로 통제
+  document.querySelectorAll('.tab-panel').forEach(p=>{p.style.display='none';p.classList.remove('active');});
+  const firstPanel=document.getElementById('tab0');
+  if(firstPanel){firstPanel.style.display='block';firstPanel.classList.add('active');}
+
+  bindUpload('fSales','/upload','판매');
+  bindUpload('fDevice','/upload/device','단말');
+  bindUpload('fInv','/upload/inventory','재고');
+  bindUpload('fSub','/upload/subscriber','가입자');
+  bindUpload('fComm','/upload/commission','수수료');
+  bindUpload('fStoreSales','/upload/storesales','소매 매장실적');
+  bindUpload('fKtoa','/upload/ktoa','KTOA');
+
   let f;
   try{
     const resp=await fetch('/api/filters');
@@ -2934,6 +3539,8 @@ async function init(){
   if(currentTab===7)renderTab7();
   if(currentTab===8)renderTab8(D);
   if(currentTab===9)renderTab9();
+  if(currentTab===10)renderTab10();
+  if(currentTab===11)renderTab11();
   // 초기화 완료 후 업데이트 알림 체크
   setTimeout(checkUpdate, 800);
   // 정책 메모 초기 렌더링

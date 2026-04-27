@@ -131,6 +131,65 @@ def safe_float(v):
     try: return float(v) if pd.notna(v) else 0.0
     except: return 0.0
 
+
+def _clean_text(v):
+    """엑셀 셀 값을 화면 표시용 문자열로 안전하게 정리한다."""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    txt = str(v).strip()
+    if txt.lower() in ("nan", "none", "nat"):
+        return ""
+    if txt.endswith(".0") and txt[:-2].isdigit():
+        return txt[:-2]
+    return txt
+
+
+def _norm_month(v):
+    """202601, 2026-01, Timestamp 등 다양한 월 표기를 YYYYMM으로 정규화한다."""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    if hasattr(v, "strftime"):
+        try:
+            return v.strftime("%Y%m")
+        except Exception:
+            pass
+    txt = str(v).strip()
+    if txt.lower() in ("", "nan", "none", "nat"):
+        return ""
+    if txt.endswith(".0"):
+        txt = txt[:-2]
+    digits = "".join(ch for ch in txt if ch.isdigit())
+    if len(digits) >= 8:
+        return digits[:6]
+    if len(digits) >= 6:
+        return digits[:6]
+    return ""
+
+
+def _next_col(df, col):
+    """코드/명칭이 나란히 있는 엑셀에서 기준 컬럼의 다음 컬럼명을 반환한다."""
+    if not col:
+        return None
+    cols = list(df.columns)
+    try:
+        i = cols.index(col)
+        return cols[i + 1] if i + 1 < len(cols) else None
+    except ValueError:
+        return None
+
+
+def _prefer_name(row, code_col=None, name_col=None):
+    """조직 코드 옆 명칭 컬럼이 있으면 명칭을 우선 사용한다."""
+    name = _clean_text(row.get(name_col, "")) if name_col else ""
+    code = _clean_text(row.get(code_col, "")) if code_col else ""
+    return name or code
+
 def _load_sales(db, contents):
     """
     판매 파일 로더.
@@ -240,12 +299,11 @@ def _load_sales(db, contents):
     if headered:
         _yyyymm_col = _pick(df, ["년월", "기준년월", "기준월", "집계월", "월"])
     if _yyyymm_col:
-        import re as _re2
         sample_months = set()
-        for v in df[_yyyymm_col].dropna().astype(str).unique():
-            v2 = v.replace("-","").replace(".","")
-            if len(v2) >= 6 and v2[:6].isdigit():
-                sample_months.add(v2[:6])
+        for v in df[_yyyymm_col].dropna().unique():
+            mm = _norm_month(v)
+            if mm:
+                sample_months.add(mm)
         if sample_months:
             for mm in sample_months:
                 db.query(Sales).filter(Sales.yyyymm == mm).delete()
@@ -323,14 +381,8 @@ def _load_sales(db, contents):
             arpu_val = _flt(row, c_arpu)
             if arpu_val <= 100 and rev_val > 0 and sub_val > 0:
                 arpu_val = round(rev_val / sub_val)
-            # 년월 추출: 컬럼에서 읽거나 없으면 빈 문자열
-            yyyymm_val = ""
-            if c_yyyymm:
-                raw_mm = _s(row, c_yyyymm)
-                # 202601, 2026-01, 202601.0 형태 모두 처리
-                raw_mm = raw_mm.replace("-", "").replace(".", "")
-                if len(raw_mm) >= 6 and raw_mm[:6].isdigit():
-                    yyyymm_val = raw_mm[:6]
+            # 년월 추출: 202601, 2026-01, 엑셀 날짜/Timestamp를 모두 YYYYMM으로 정규화
+            yyyymm_val = _norm_month(row.get(c_yyyymm, "")) if c_yyyymm else ""
             obj = Sales(
                 yyyymm=yyyymm_val,
                 boomun=_s(row, c_boomun), bonbu=bonbu, team=team, dept=_s(row, c_dept),
@@ -644,58 +696,106 @@ _ktoa_cache = None
 
 
 def _load_storesales(db, contents):
-    df = _read_headered_excel(contents, ["본부", "담당", "대리점", "판매", "신규", "010", "MNP", "해지", "ARPU"])
-    db.query(StoreSales).delete(); db.commit()
-    c_month = _pick_col(df, ["년월", "월", "기준월"])
-    c_date = _pick_col(df, ["일자", "기준일", "개통일"])
+    """
+    소매 매장실적 로더.
+    원천 파일은 '본부 코드/본부명', '판매접점 코드/판매점명'처럼 코드와 명칭이
+    옆 컬럼에 나란히 있는 구조가 많다. 기존 로더는 코드 컬럼만 잡아 매장명이 비거나
+    월(YYYYMM)이 깨지는 문제가 있어 명칭 우선·월 정규화 방식으로 읽는다.
+    """
+    df = _read_headered_excel(contents, ["년월", "본부", "담당", "무선유통조직", "판매접점", "판매량", "신규", "010", "MNP", "해지", "ARPU"])
+
+    c_month = _pick_col(df, ["년월", "기준년월", "기준월", "월"])
+    c_date = _pick_col(df, ["일자", "기준일", "개통일", "판매일"])
     c_bonbu = _pick_col(df, ["본부"])
-    c_team = _pick_col(df, ["담당", "지사"])
-    c_agency = _pick_col(df, ["계약대리점", "대리점"])
-    c_agency_code = _pick_col(df, ["대리점코드", "무선유통조직", "판매조직"])
-    c_store = _pick_col(df, ["판매매장", "매장명", "매장"])
-    c_contact = _pick_col(df, ["판매접점", "접점"])
-    c_channel = _pick_col(df, ["채널", "판매유형", "판매경로"])
+    c_team = _pick_col(df, ["담당·지사", "담당", "지사"])
+    c_agency_code = _pick_col(df, ["무선유통조직", "판매조직", "대리점코드", "대표코드"])
+    c_store_code = _pick_col(df, ["판매접점", "접점코드", "매장코드"])
+    c_channel = _pick_col(df, ["판매채널", "채널", "판매유형", "판매경로"])
     c_sale = _pick_col(df, ["판매량", "총판매", "판매건수", "판매"])
+    c_net = _pick_col(df, ["순증"])
     c_new = _pick_col(df, ["신규판매", "신규"])
-    c_010 = _pick_col(df, ["010"])
+    c_010 = _pick_col(df, ["010신규", "010"])
     c_mnp = _pick_col(df, ["MNP", "번호이동"])
-    c_premium = _pick_col(df, ["기변", "기기변경"])
+    c_premium = _pick_col(df, ["우수기변", "기변", "기기변경"])
     c_churn = _pick_col(df, ["해지"])
-    c_rev = _pick_col(df, ["판매매출", "매출"])
+    c_rev = _pick_col(df, ["판매매출", "매출", "수익"])
     c_arpu = _pick_col(df, ["ARPU", "arpu"])
-    buf = []
+
+    # 코드 컬럼 바로 오른쪽이 명칭인 원천 양식을 우선 지원
+    c_bonbu_nm = _next_col(df, c_bonbu)
+    c_team_nm = _next_col(df, c_team)
+    c_agency_nm = _next_col(df, c_agency_code)
+    c_store_nm = _next_col(df, c_store_code)
+
+    incoming_months = set()
+    rows_to_save = []
     for _, row in df.iterrows():
-        bonbu = str(row.get(c_bonbu, "")).strip() if c_bonbu else ""
-        store = str(row.get(c_store, "")).strip() if c_store else ""
-        contact = str(row.get(c_contact, "")).strip() if c_contact else ""
+        ref_month = _norm_month(row.get(c_month, "")) if c_month else ""
+        sale_date = _clean_text(row.get(c_date, ""))[:10] if c_date else ""
+        bonbu = _prefer_name(row, c_bonbu, c_bonbu_nm)
+        team = _prefer_name(row, c_team, c_team_nm)
+        agency_code = _clean_text(row.get(c_agency_code, "")) if c_agency_code else ""
+        agency = _prefer_name(row, c_agency_code, c_agency_nm)
+        store_code = _clean_text(row.get(c_store_code, "")) if c_store_code else ""
+        store = _prefer_name(row, c_store_code, c_store_nm)
+        channel = _clean_text(row.get(c_channel, "")) if c_channel else ""
+
         sale = safe_int(row.get(c_sale, 0)) if c_sale else 0
-        if bonbu in ("", "nan", "None") and store in ("", "nan", "None") and sale == 0:
-            continue
         new_sale = safe_int(row.get(c_new, 0)) if c_new else 0
         mnp = safe_int(row.get(c_mnp, 0)) if c_mnp else 0
         n010 = safe_int(row.get(c_010, 0)) if c_010 else max(0, new_sale - mnp)
-        buf.append(StoreSales(
-            ref_month=str(row.get(c_month, "")).strip()[:6] if c_month else "",
-            sale_date=str(row.get(c_date, "")).strip()[:10] if c_date else "",
+        premium = safe_int(row.get(c_premium, 0)) if c_premium else 0
+        churn = safe_int(row.get(c_churn, 0)) if c_churn else 0
+
+        if not new_sale and (n010 or mnp):
+            new_sale = n010 + mnp
+        if not sale and (new_sale or premium):
+            sale = new_sale + premium
+        if not churn and c_net:
+            # 순증 = 신규 - 해지 구조일 때 해지를 역산할 수 있으면 활용
+            net_val = safe_int(row.get(c_net, 0))
+            if new_sale and new_sale - net_val >= 0:
+                churn = new_sale - net_val
+
+        if not any([bonbu, team, agency, store, channel]) and sale == 0:
+            continue
+        if ref_month:
+            incoming_months.add(ref_month)
+
+        rows_to_save.append(StoreSales(
+            ref_month=ref_month,
+            sale_date=sale_date,
             bonbu=bonbu,
-            team=str(row.get(c_team, "")).strip() if c_team else "",
-            agency=str(row.get(c_agency, "")).strip() if c_agency else "",
-            agency_code=str(row.get(c_agency_code, "")).strip() if c_agency_code else "",
+            team=team,
+            agency=agency,
+            agency_code=agency_code,
             store=store,
-            contact=contact,
-            channel=str(row.get(c_channel, "")).strip() if c_channel else "",
+            contact=store_code,
+            channel=channel,
             sale=sale,
             new_sale=new_sale,
             new010=n010,
             mnp=mnp,
-            premium=safe_int(row.get(c_premium, 0)) if c_premium else 0,
-            churn=safe_int(row.get(c_churn, 0)) if c_churn else 0,
+            premium=premium,
+            churn=churn,
             revenue=safe_float(row.get(c_rev, 0)) if c_rev else 0.0,
             arpu=safe_float(row.get(c_arpu, 0)) if c_arpu else 0.0,
         ))
-        if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf = []
-    if buf: db.bulk_save_objects(buf); db.commit()
 
+    # 월이 식별되면 해당 월만 교체. 월이 전혀 없으면 전체 교체.
+    if incoming_months:
+        db.query(StoreSales).filter(StoreSales.ref_month.in_(list(incoming_months))).delete(synchronize_session=False)
+    else:
+        db.query(StoreSales).delete()
+    db.commit()
+
+    buf = []
+    for obj in rows_to_save:
+        buf.append(obj)
+        if len(buf) >= BATCH:
+            db.bulk_save_objects(buf); db.commit(); buf = []
+    if buf:
+        db.bulk_save_objects(buf); db.commit()
 
 def _load_subsidy(db, contents):
     df = _read_headered_excel(contents, ["단말", "모델", "지원금", "공통", "MNP", "기변", "010"])
@@ -940,6 +1040,7 @@ def _load_ktoa(contents):
 async def lifespan(app_):
     db = SessionLocal()
     try:
+        app_dir = os.path.dirname(__file__)
         for fname, loader in [
             ("sales.xlsx", _load_sales), ("commission.xlsx", _load_commission),
             ("device.xlsx", _load_device), ("inventory.xlsx", _load_inventory),
@@ -947,14 +1048,15 @@ async def lifespan(app_):
             ("subsidy.xlsx", _load_subsidy), ("targets.xlsx", _load_targets),
             ("business_days.xlsx", _load_business_days),
         ]:
-            path = os.path.join(DATA_DIR, fname)
-            if os.path.exists(path):
+            # app/data 우선, 없으면 과거 패키징 방식(app 루트)의 xlsx도 자동 인식
+            path = next((p for p in [os.path.join(DATA_DIR, fname), os.path.join(app_dir, fname)] if os.path.exists(p)), None)
+            if path:
                 with open(path, "rb") as f: loader(db, f.read())
-                print(f"[자동로드] {fname} 완료")
-        ktoa_path = os.path.join(DATA_DIR, "ktoa_day.xlsx")
-        if os.path.exists(ktoa_path):
+                print(f"[자동로드] {fname} 완료: {path}")
+        ktoa_path = next((p for p in [os.path.join(DATA_DIR, "ktoa_day.xlsx"), os.path.join(app_dir, "ktoa_day.xlsx")] if os.path.exists(p)), None)
+        if ktoa_path:
             with open(ktoa_path, "rb") as f: _load_ktoa(f.read())
-            print("[자동로드] ktoa_day.xlsx 완료")
+            print(f"[자동로드] ktoa_day.xlsx 완료: {ktoa_path}")
     except Exception as e: print(f"[자동로드 오류] {e}")
     try: _repair_sales_sanity(db)
     except Exception as e: print(f"[데이터 보정 호출 오류] {e}")
@@ -1089,23 +1191,41 @@ async def get_filters(
 ):
     db = SessionLocal()
     try:
-        # 사용 가능한 년월 목록
-        month_all = sorted([r[0] for r in db.query(Sales.yyyymm).distinct()
-            .filter(Sales.yyyymm!="", Sales.yyyymm!="nan").all()], reverse=True)
-        bonbu_all = [r[0] for r in db.query(Sales.bonbu, func.sum(Sales.sale_count))
+        # 사용 가능한 년월 목록: 판매 데이터와 소매 매장실적 월을 합산
+        sale_months = {r[0] for r in db.query(Sales.yyyymm).distinct()
+            .filter(Sales.yyyymm!="", Sales.yyyymm!="nan").all() if r[0]}
+        store_months = {r[0] for r in db.query(StoreSales.ref_month).distinct()
+            .filter(StoreSales.ref_month!="", StoreSales.ref_month!="nan").all() if r[0]}
+        month_all = sorted(sale_months | store_months, reverse=True)
+        sale_bonbu = {r[0] for r in db.query(Sales.bonbu, func.sum(Sales.sale_count))
             .filter(Sales.bonbu!="",Sales.bonbu!="nan")
-            .group_by(Sales.bonbu).having(func.sum(Sales.sale_count)>=MIN_BONBU)
-            .order_by(Sales.bonbu).all()]
+            .group_by(Sales.bonbu).having(func.sum(Sales.sale_count)>=MIN_BONBU).all() if r[0]}
+        store_bonbu = {r[0] for r in db.query(StoreSales.bonbu).distinct()
+            .filter(StoreSales.bonbu!="",StoreSales.bonbu!="nan").all() if r[0]}
+        bonbu_all = sorted(sale_bonbu | store_bonbu)
+
         tq = db.query(Sales.team).distinct().filter(Sales.team!="",Sales.team!="nan")
-        if bonbu_list: tq = tq.filter(Sales.bonbu.in_(bonbu_list))
-        team_all = [r[0] for r in tq.order_by(Sales.team).all()]
+        stq = db.query(StoreSales.team).distinct().filter(StoreSales.team!="",StoreSales.team!="nan")
+        if bonbu_list:
+            tq = tq.filter(Sales.bonbu.in_(bonbu_list))
+            stq = stq.filter(StoreSales.bonbu.in_(bonbu_list))
+        team_all = sorted({r[0] for r in tq.all() if r[0]} | {r[0] for r in stq.all() if r[0]})
+
         aq = db.query(Sales.agency).distinct().filter(Sales.agency!="",Sales.agency!="nan")
-        if bonbu_list: aq = aq.filter(Sales.bonbu.in_(bonbu_list))
-        if team_list: aq = aq.filter(Sales.team.in_(team_list))
-        agency_all = [r[0] for r in aq.order_by(Sales.agency).all()]
-        channel_all = [r[0] for r in db.query(Sales.channel_sub).distinct()
-            .filter(Sales.channel_sub!="",Sales.channel_sub!="nan")
-            .order_by(Sales.channel_sub).all()]
+        saq = db.query(StoreSales.agency).distinct().filter(StoreSales.agency!="",StoreSales.agency!="nan")
+        if bonbu_list:
+            aq = aq.filter(Sales.bonbu.in_(bonbu_list))
+            saq = saq.filter(StoreSales.bonbu.in_(bonbu_list))
+        if team_list:
+            aq = aq.filter(Sales.team.in_(team_list))
+            saq = saq.filter(StoreSales.team.in_(team_list))
+        agency_all = sorted({r[0] for r in aq.all() if r[0]} | {r[0] for r in saq.all() if r[0]})
+
+        sale_channels = {r[0] for r in db.query(Sales.channel_sub).distinct()
+            .filter(Sales.channel_sub!="",Sales.channel_sub!="nan").all() if r[0]}
+        store_channels = {r[0] for r in db.query(StoreSales.channel).distinct()
+            .filter(StoreSales.channel!="",StoreSales.channel!="nan").all() if r[0]}
+        channel_all = sorted(sale_channels | store_channels)
         # 수수료 정책명 목록
         policy_all = [r[0] for r in db.query(Commission.commission_policy_name).distinct()
             .filter(Commission.commission_policy_name!="",Commission.commission_policy_name!="nan")
@@ -1671,6 +1791,7 @@ async def get_store_sales(
     view: str = "store",
     bonbu_list: List[str] = Query(default=[]),
     team_list: List[str] = Query(default=[]),
+    yyyymm_list: List[str] = Query(default=[]),
     agency: str = None,
     channel_list: List[str] = Query(default=[]),
     limit: int = 50,
@@ -1682,27 +1803,71 @@ async def get_store_sales(
         elif view == "team": col = StoreSales.team
         elif view == "agency": col = StoreSales.agency
         elif view == "contact": col = StoreSales.contact
-        q = db.query(col, func.sum(StoreSales.sale), func.sum(StoreSales.new_sale),
-                     func.sum(StoreSales.new010), func.sum(StoreSales.mnp),
-                     func.sum(StoreSales.premium), func.sum(StoreSales.churn),
-                     func.sum(StoreSales.revenue), func.avg(StoreSales.arpu))
-        if bonbu_list: q = q.filter(StoreSales.bonbu.in_(bonbu_list))
-        if team_list: q = q.filter(StoreSales.team.in_(team_list))
-        if agency: q = q.filter(StoreSales.agency==agency)
-        if channel_list: q = q.filter(StoreSales.channel.in_(channel_list))
+        elif view == "channel": col = StoreSales.channel
+
+        def af(q):
+            if bonbu_list: q = q.filter(StoreSales.bonbu.in_(bonbu_list))
+            if team_list: q = q.filter(StoreSales.team.in_(team_list))
+            if yyyymm_list: q = q.filter(StoreSales.ref_month.in_(yyyymm_list))
+            if agency: q = q.filter(StoreSales.agency==agency)
+            if channel_list: q = q.filter(StoreSales.channel.in_(channel_list))
+            return q
+
+        metric_exprs = [
+            func.sum(StoreSales.sale), func.sum(StoreSales.new_sale),
+            func.sum(StoreSales.new010), func.sum(StoreSales.mnp),
+            func.sum(StoreSales.premium), func.sum(StoreSales.churn),
+            func.sum(StoreSales.revenue), func.sum(StoreSales.arpu * StoreSales.sale),
+        ]
+        q = af(db.query(col, *metric_exprs))
         rows = q.filter(col!="", col!="nan").group_by(col).order_by(func.sum(StoreSales.sale).desc()).limit(limit).all()
+
         items=[]
         for r in rows:
             sale=int(r[1] or 0); new_sale=int(r[2] or 0); churn=int(r[6] or 0); rev=float(r[7] or 0)
+            arpu_num=float(r[8] or 0)
             items.append({"name":r[0],"sale":sale,"new_sale":new_sale,"new_sub":new_sale,
                           "n010":int(r[3] or 0),"new010":int(r[3] or 0),"mnp":int(r[4] or 0),
                           "premium":int(r[5] or 0),"churn":churn,"net":new_sale-churn,
-                          "revenue":rev,"arpu":round(float(r[8] or 0))})
-        totals={"sale":sum(i["sale"] for i in items),"new_sale":sum(i["new_sale"] for i in items),
-                "n010":sum(i["n010"] for i in items),"mnp":sum(i["mnp"] for i in items),
-                "premium":sum(i["premium"] for i in items),"churn":sum(i["churn"] for i in items)}
-        totals["net"] = totals["new_sale"] - totals["churn"]
-        return {"view":view,"items":items,"totals":totals}
+                          "revenue":rev,"arpu":round(arpu_num/sale) if sale>0 and arpu_num>0 else 0})
+
+        total_row = af(db.query(*metric_exprs)).first()
+        t_sale = int((total_row[0] if total_row else 0) or 0)
+        t_new = int((total_row[1] if total_row else 0) or 0)
+        t_010 = int((total_row[2] if total_row else 0) or 0)
+        t_mnp = int((total_row[3] if total_row else 0) or 0)
+        t_premium = int((total_row[4] if total_row else 0) or 0)
+        t_churn = int((total_row[5] if total_row else 0) or 0)
+        t_rev = float((total_row[6] if total_row else 0) or 0)
+        t_arpu_num = float((total_row[7] if total_row else 0) or 0)
+        totals={"sale":t_sale,"new_sale":t_new,"new_sub":t_new,"n010":t_010,"new010":t_010,
+                "mnp":t_mnp,"premium":t_premium,"churn":t_churn,"net":t_new-t_churn,
+                "revenue":t_rev,"arpu":round(t_arpu_num/t_sale) if t_sale>0 and t_arpu_num>0 else 0,
+                "store_count": int(af(db.query(func.count(func.distinct(StoreSales.store)))).scalar() or 0),
+                "agency_count": int(af(db.query(func.count(func.distinct(StoreSales.agency)))).scalar() or 0)}
+
+        months = sorted([r[0] for r in af(db.query(StoreSales.ref_month).distinct())
+            .filter(StoreSales.ref_month!="", StoreSales.ref_month!="nan").all()])
+        trend=[]
+        for r in af(db.query(
+            StoreSales.ref_month, func.sum(StoreSales.sale), func.sum(StoreSales.new_sale),
+            func.sum(StoreSales.mnp), func.sum(StoreSales.premium), func.sum(StoreSales.churn),
+            func.sum(StoreSales.arpu * StoreSales.sale),
+        )).filter(StoreSales.ref_month!="", StoreSales.ref_month!="nan").group_by(StoreSales.ref_month).order_by(StoreSales.ref_month).all():
+            sale=int(r[1] or 0); new_sale=int(r[2] or 0); churn=int(r[5] or 0); arpu_num=float(r[6] or 0)
+            trend.append({"month":r[0],"sale":sale,"new_sale":new_sale,"mnp":int(r[3] or 0),
+                          "premium":int(r[4] or 0),"churn":churn,"net":new_sale-churn,
+                          "arpu":round(arpu_num/sale) if sale>0 and arpu_num>0 else 0})
+        for i, row in enumerate(trend):
+            prev = trend[i-1]["sale"] if i > 0 else 0
+            row["mom"] = round((row["sale"]-prev)/prev*100, 1) if prev > 0 else None
+
+        channel_rows = af(db.query(StoreSales.channel, func.sum(StoreSales.sale))).filter(
+            StoreSales.channel!="", StoreSales.channel!="nan"
+        ).group_by(StoreSales.channel).order_by(func.sum(StoreSales.sale).desc()).limit(12).all()
+        channels = [{"name":r[0],"value":int(r[1] or 0)} for r in channel_rows]
+
+        return {"view":view,"items":items,"totals":totals,"months":months,"trend":trend,"channels":channels}
     finally:
         db.close()
 
@@ -1740,6 +1905,157 @@ async def get_forecast(yyyymm: str = None):
 async def get_ktoa():
     if not _ktoa_cache: return {"rows":[],"columns":[]}
     return {"rows":_ktoa_cache,"columns":list(_ktoa_cache[0].keys())}
+
+# ── Monthly Trend API ─────────────────────────────────────────────
+@app.get("/api/monthly-trend")
+async def get_monthly_trend(
+    bonbu_list: List[str] = Query(default=[]),
+    team_list: List[str] = Query(default=[]),
+    channel_list: List[str] = Query(default=[]),
+    metric: str = "sale",  # sale | new_sale | mnp | churn | arpu | revenue | net
+):
+    db = SessionLocal()
+    try:
+        def af(q):
+            if bonbu_list: q = q.filter(Sales.bonbu.in_(bonbu_list))
+            if team_list:  q = q.filter(Sales.team.in_(team_list))
+            if channel_list: q = q.filter(Sales.channel_sub.in_(channel_list))
+            return q
+
+        # 전체 월 목록: 본부/담당/채널 필터 적용 후 실제 데이터가 있는 월만 표시
+        months = sorted([r[0] for r in af(db.query(Sales.yyyymm).distinct())
+            .filter(Sales.yyyymm!="", Sales.yyyymm!="nan").all()])
+
+        if not months:
+            return {"months": [], "total": [], "bonbu": [], "channel": []}
+
+        # 월별 전체 합계
+        col_map = {
+            "sale": Sales.sale_count, "new_sale": Sales.new_sale,
+            "mnp": Sales.mnp, "churn": Sales.churn,
+            "arpu": Sales.arpu, "revenue": Sales.revenue,
+            "n010": Sales.new010, "premium": Sales.premium_change,
+            "smnp": Sales.smnp, "lmnp": Sales.lmnp,
+            "mmnp": Sales.mmnp, "vmnp": Sales.vmnp,
+        }
+        col = col_map.get(metric, Sales.sale_count)
+
+        total_by_month = {}
+        for r in af(db.query(Sales.yyyymm, func.sum(col))).filter(
+            Sales.yyyymm!="", Sales.yyyymm!="nan"
+        ).group_by(Sales.yyyymm).all():
+            if metric == "arpu":
+                # ARPU는 가중평균: sum(arpu*subscriber)/sum(subscriber)
+                pass
+            total_by_month[r[0]] = float(r[1] or 0)
+
+        if metric == "arpu":
+            for r in af(db.query(
+                Sales.yyyymm,
+                func.sum(Sales.arpu * Sales.subscriber),
+                func.sum(Sales.subscriber),
+            )).filter(Sales.yyyymm!="", Sales.yyyymm!="nan").group_by(Sales.yyyymm).all():
+                sub = float(r[2] or 0)
+                total_by_month[r[0]] = round(float(r[1] or 0) / sub) if sub > 0 else 0
+
+        total_series = [{"month": m, "value": round(total_by_month.get(m, 0))} for m in months]
+
+        # 전월 대비 증감율 추가
+        for i, item in enumerate(total_series):
+            prev = total_series[i-1]["value"] if i > 0 else 0
+            item["mom"] = round((item["value"] - prev) / prev * 100, 1) if prev > 0 else None
+
+        # 본부별 월별 추이 (상위 본부만)
+        bonbu_months = {}
+        for r in af(db.query(Sales.yyyymm, Sales.bonbu, func.sum(col))).filter(
+            Sales.yyyymm!="", Sales.yyyymm!="nan",
+            Sales.bonbu!="", Sales.bonbu!="nan"
+        ).group_by(Sales.yyyymm, Sales.bonbu).all():
+            mm, bn, val = r[0], r[1], float(r[2] or 0)
+            if bn not in bonbu_months: bonbu_months[bn] = {}
+            bonbu_months[bn][mm] = round(val)
+
+        # 전체 합산 기준 상위 5 본부
+        bonbu_totals = {bn: sum(v.values()) for bn, v in bonbu_months.items()}
+        top_bonbu = sorted(bonbu_totals, key=lambda x: -bonbu_totals[x])[:7]
+        bonbu_series = [
+            {"name": bn, "data": [bonbu_months[bn].get(m, 0) for m in months]}
+            for bn in top_bonbu
+        ]
+
+        # 채널별 월별 추이
+        ch_months = {}
+        for r in af(db.query(Sales.yyyymm, Sales.channel_sub, func.sum(col))).filter(
+            Sales.yyyymm!="", Sales.yyyymm!="nan",
+            Sales.channel_sub!="", Sales.channel_sub!="nan"
+        ).group_by(Sales.yyyymm, Sales.channel_sub).all():
+            mm, ch, val = r[0], r[1], float(r[2] or 0)
+            if ch not in ch_months: ch_months[ch] = {}
+            ch_months[ch][mm] = round(val)
+
+        ch_totals = {ch: sum(v.values()) for ch, v in ch_months.items()}
+        top_ch = sorted(ch_totals, key=lambda x: -ch_totals[x])[:6]
+        channel_series = [
+            {"name": ch, "data": [ch_months[ch].get(m, 0) for m in months]}
+            for ch in top_ch
+        ]
+
+        # 월별 다지표 요약 (판매/신규/MNP/해지/순증/ARPU 한번에)
+        multi = {}
+        for r in af(db.query(
+            Sales.yyyymm,
+            func.sum(Sales.sale_count), func.sum(Sales.new_sale),
+            func.sum(Sales.mnp), func.sum(Sales.churn),
+            func.sum(Sales.premium_change), func.sum(Sales.new010),
+            func.sum(Sales.smnp), func.sum(Sales.lmnp),
+            func.sum(Sales.mmnp), func.sum(Sales.vmnp),
+            func.sum(Sales.revenue), func.sum(Sales.subscriber),
+            func.sum(Sales.arpu * Sales.subscriber),
+        )).filter(Sales.yyyymm!="", Sales.yyyymm!="nan").group_by(Sales.yyyymm).all():
+            mm = r[0]
+            sub = int(r[12] or 0)
+            arpu_w = round(float(r[13] or 0) / sub) if sub > 0 else 0
+            new_s = int(r[2] or 0)
+            churn_s = int(r[4] or 0)
+            multi[mm] = {
+                "sale": int(r[1] or 0), "new_sale": new_s,
+                "mnp": int(r[3] or 0), "churn": churn_s,
+                "net": new_s - churn_s,
+                "premium": int(r[5] or 0), "n010": int(r[6] or 0),
+                "smnp": int(r[7] or 0), "lmnp": int(r[8] or 0),
+                "mmnp": int(r[9] or 0), "vmnp": int(r[10] or 0),
+                "revenue": float(r[11] or 0), "arpu": arpu_w,
+            }
+        multi_series = [{"month": m, **(multi.get(m, {}))} for m in months]
+
+        # 본부별 월별 요약 (히트맵용)
+        heatmap = {}
+        for r in af(db.query(
+            Sales.yyyymm, Sales.bonbu, func.sum(Sales.sale_count)
+        )).filter(
+            Sales.yyyymm!="", Sales.yyyymm!="nan",
+            Sales.bonbu!="", Sales.bonbu!="nan"
+        ).group_by(Sales.yyyymm, Sales.bonbu).having(func.sum(Sales.sale_count) >= MIN_BONBU).all():
+            mm, bn, val = r[0], r[1], int(r[2] or 0)
+            if bn not in heatmap: heatmap[bn] = {}
+            heatmap[bn][mm] = val
+
+        heatmap_data = [
+            {"bonbu": bn, "months": {m: heatmap[bn].get(m, 0) for m in months}}
+            for bn in sorted(heatmap.keys(), key=lambda x: -sum(heatmap[x].values()))
+        ]
+
+        return {
+            "months": months,
+            "total": total_series,
+            "bonbu": bonbu_series,
+            "channel": channel_series,
+            "multi": multi_series,
+            "heatmap": heatmap_data,
+            "metric": metric,
+        }
+    finally:
+        db.close()
 
 @app.get("/",response_class=HTMLResponse)
 async def dashboard():
