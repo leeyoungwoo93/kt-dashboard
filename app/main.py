@@ -12,7 +12,7 @@ from app.models.sales import Sales, Commission, DeviceSales, Inventory, Subscrib
 MIN_BONBU = 100
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 BATCH = 200
-APP_VERSION = "v4-retail-monthly-deploy-safe"
+APP_VERSION = "v5-seeded-retail-monthly"
 AUTOLOAD_EXCEL = os.environ.get("AUTOLOAD_EXCEL", "0").lower() in ("1", "true", "yes", "on")
 
 
@@ -336,6 +336,14 @@ def _load_sales(db, contents):
         c_k110 = _pick(df, ["초이스", "110K", "110"])
         c_yyyymm = _pick(df, ["년월", "기준년월", "기준월", "집계월", "월"])
 
+        # 원천은 본부/담당/부서/무선유통조직이 "코드 컬럼 + 바로 오른쪽 명칭 컬럼" 구조다.
+        # v4는 코드 컬럼만 잡아서 _valid_org()에서 전부 탈락했고, 그 결과 판매 데이터가 0건으로 보였다.
+        c_boomun_nm = _next_col(df, c_boomun)
+        c_bonbu_nm = _next_col(df, c_bonbu)
+        c_team_nm = _next_col(df, c_team)
+        c_dept_nm = _next_col(df, c_dept)
+        c_agency_nm = c_agency or _next_col(df, c_agency_code)
+
         c_sale = _pick(df, ["총판매", "판매량", "판매건수", "개통건수", "판매"], ["신규", "MNP", "번호이동", "기변", "해지", "순증", "매출", "ARPU", "율", "비중", "목표"])
         c_net = _pick(df, ["순증", "순증감", "netadd", "net_add"])
         c_new = _pick(df, ["신규판매", "신규가입", "신규개통", "신규"], ["010", "순증", "ARPU", "율", "비중", "목표", "해지"])
@@ -358,9 +366,9 @@ def _load_sales(db, contents):
         c_subscriber = _pick(df, ["재적가입자", "유지가입자", "가입자", "Subscriber"])
 
         for _, row in df.iterrows():
-            bonbu = _s(row, c_bonbu)
-            team = _s(row, c_team)
-            agency = _s(row, c_agency)
+            bonbu = _prefer_name(row, c_bonbu, c_bonbu_nm)
+            team = _prefer_name(row, c_team, c_team_nm)
+            agency = _prefer_name(row, c_agency_code, c_agency_nm)
             # 본부가 없고 담당/대리점만 있는 파일도 허용하되, 완전 빈 행은 제외
             if not (_valid_org(bonbu) or _valid_org(team) or _valid_org(agency)):
                 continue
@@ -388,8 +396,8 @@ def _load_sales(db, contents):
             yyyymm_val = _norm_month(row.get(c_yyyymm, "")) if c_yyyymm else ""
             obj = Sales(
                 yyyymm=yyyymm_val,
-                boomun=_s(row, c_boomun), bonbu=bonbu, team=team, dept=_s(row, c_dept),
-                agency_code=_s(row, c_agency_code), agency_org=_s(row, c_agency_org), agency=agency,
+                boomun=_prefer_name(row, c_boomun, c_boomun_nm), bonbu=bonbu, team=team, dept=_prefer_name(row, c_dept, c_dept_nm),
+                agency_code=_s(row, c_agency_code), agency_org=agency, agency=agency,
                 channel1=_s(row, c_ch1), channel2=_s(row, c_ch2), channel3=_s(row, c_ch3), channel_sub=_s(row, c_chsub),
                 sale_type=_s(row, c_sale_type), kids=_s(row, c_kids), foreigner=_s(row, c_foreigner), k110=_s(row, c_k110),
                 sale_count=sale_cnt, net_add=safe_int(row.get(c_net, new_sale - churn_val)) if c_net else new_sale - churn_val,
@@ -2081,12 +2089,22 @@ async def get_monthly_trend(
 async def health():
     db = SessionLocal()
     try:
+        sales_rows = int(db.query(func.count(Sales.id)).scalar() or 0)
+        store_rows = int(db.query(func.count(StoreSales.id)).scalar() or 0)
+        sales_total = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        store_total = int(db.query(func.sum(StoreSales.sale)).scalar() or 0)
+        months = [r[0] for r in db.query(Sales.yyyymm).distinct().filter(Sales.yyyymm!="", Sales.yyyymm!="nan").order_by(Sales.yyyymm).all()]
+        store_months = [r[0] for r in db.query(StoreSales.ref_month).distinct().filter(StoreSales.ref_month!="", StoreSales.ref_month!="nan").order_by(StoreSales.ref_month).all()]
         return {
             "status": "ok",
             "version": APP_VERSION,
             "autoload_excel": AUTOLOAD_EXCEL,
-            "sales_rows": int(db.query(func.count(Sales.id)).scalar() or 0),
-            "store_sales_rows": int(db.query(func.count(StoreSales.id)).scalar() or 0),
+            "sales_rows": sales_rows,
+            "sales_total": sales_total,
+            "store_sales_rows": store_rows,
+            "store_sales_total": store_total,
+            "month_list": months,
+            "store_month_list": store_months,
         }
     finally:
         db.close()
@@ -2094,124 +2112,13 @@ async def health():
 @app.get("/api/version")
 async def version():
     return {"version": APP_VERSION}
-# ── Market Intelligence APIs ─────────────────────────────────────
-def _market_db_path():
-    return os.getenv(
-        "MARKET_DB_PATH",
-        os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "..",
-                "market_automation",
-                "market_automation.db",
-            )
-        ),
-    )
 
-
-def _market_fetch(sql: str, params: tuple = ()):
-    import sqlite3
-
-    path = _market_db_path()
-    if not os.path.exists(path) or os.path.getsize(path) == 0:
-        return []
-
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    try:
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
-    finally:
-        conn.close()
-
-
-@app.get("/api/market/timeline")
-async def market_timeline(limit: int = 100):
-    rows = _market_fetch(
-        """
-        SELECT
-            id,
-            event_type,
-            carrier,
-            source_channel,
-            source_sender,
-            source_time,
-            raw_summary,
-            confidence
-        FROM market_events
-        ORDER BY source_time DESC, id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
-    return {"items": rows}
-
-
-@app.get("/api/market/reports")
-async def market_reports(limit: int = 300):
-    rows = _market_fetch(
-        """
-        SELECT
-            report_date,
-            carrier,
-            agency_name,
-            model_name,
-            price_010,
-            price_mnp,
-            price_change,
-            notes
-        FROM market_report_rows
-        ORDER BY report_date DESC, id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
-    return {"items": rows}
-
-
-@app.get("/api/market/rebate-status")
-async def market_rebate_status():
-    rows = _market_fetch(
-        """
-        SELECT
-            carrier,
-            model_group,
-            sales_type,
-            contract_type,
-            plan_band,
-            current_delta_krw,
-            last_updated_at
-        FROM current_policy_state
-        WHERE model_group != ''
-          AND model_group != 'UNKNOWN'
-        ORDER BY model_group, carrier, sales_type
-        """
-    )
-    return {"items": rows}
-
-
-@app.get("/api/market/competition")
-async def market_competition():
-    rows = _market_fetch(
-        """
-        SELECT
-            model_group,
-            MAX(CASE WHEN carrier='KT' THEN current_delta_krw END) AS kt_delta,
-            MAX(CASE WHEN carrier='SKT' THEN current_delta_krw END) AS skt_delta,
-            MAX(CASE WHEN carrier='LGU' THEN current_delta_krw END) AS lgu_delta,
-            COALESCE(MAX(CASE WHEN carrier='SKT' THEN current_delta_krw END), 0)
-              - COALESCE(MAX(CASE WHEN carrier='KT' THEN current_delta_krw END), 0) AS skt_vs_kt_gap,
-            COALESCE(MAX(CASE WHEN carrier='LGU' THEN current_delta_krw END), 0)
-              - COALESCE(MAX(CASE WHEN carrier='KT' THEN current_delta_krw END), 0) AS lgu_vs_kt_gap
-        FROM current_policy_state
-        WHERE model_group != ''
-          AND model_group != 'UNKNOWN'
-        GROUP BY model_group
-        ORDER BY model_group
-        """
-    )
-    return {"items": rows}
 @app.get("/",response_class=HTMLResponse)
 async def dashboard():
     with open(os.path.join(os.path.dirname(__file__),"templates","index.html"),encoding="utf-8") as f:
         return f.read()
+
+# Market intelligence v2 API
+from app.market_api_patch import router as market2_router
+app.include_router(market2_router)
+
