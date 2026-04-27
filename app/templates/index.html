@@ -3940,5 +3940,164 @@ document.addEventListener("click", e => {
   }
 });
 </script>
+<script id="market-intel-render-fix">
+(function(){
+  function fmt(v){ return v === null || v === undefined || v === "" ? "-" : v; }
+  function day(v){ return v ? String(v).slice(0,10) : "-"; }
+  function money(v){
+    if (v === null || v === undefined || v === "") return "-";
+    return Math.round(Number(v) / 10000).toLocaleString() + "만";
+  }
+
+  function table(headers, rows){
+    return `
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 22px;background:white">
+        <thead>
+          <tr>
+            ${headers.map(h=>`<th style="border:1px solid #ddd;padding:6px;background:#f5f5f5;text-align:center">${h}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length ? rows.join("") : `<tr><td colspan="${headers.length}" style="border:1px solid #ddd;padding:10px;text-align:center;color:#888">데이터 없음</td></tr>`}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function findMarketBox(){
+    const nodes = Array.from(document.querySelectorAll("div,section,article"));
+    const candidates = nodes.filter(el => {
+      const t = el.innerText || "";
+      return t.includes("시장정보 인텔리전스") && t.includes("시장정보를 불러오는 중");
+    });
+    return candidates.sort((a,b)=>(a.innerText||"").length-(b.innerText||"").length)[0];
+  }
+
+  async function renderMarketIntel(){
+    const box = findMarketBox();
+    if (!box) return false;
+
+    try {
+      const [reportsRes, rebateRes, compRes, timelineRes] = await Promise.all([
+        fetch("/api/market/reports?limit=200", {cache:"no-store"}),
+        fetch("/api/market/rebate-status", {cache:"no-store"}),
+        fetch("/api/market/competition", {cache:"no-store"}),
+        fetch("/api/market/timeline?limit=120", {cache:"no-store"})
+      ]);
+
+      if (!reportsRes.ok) throw new Error("/api/market/reports " + reportsRes.status);
+      if (!rebateRes.ok) throw new Error("/api/market/rebate-status " + rebateRes.status);
+      if (!compRes.ok) throw new Error("/api/market/competition " + compRes.status);
+      if (!timelineRes.ok) throw new Error("/api/market/timeline " + timelineRes.status);
+
+      const reports = await reportsRes.json();
+      const rebate = await rebateRes.json();
+      const comp = await compRes.json();
+      const timeline = await timelineRes.json();
+
+      const reportItems = reports.items || [];
+      const rebateItems = rebate.items || [];
+      const compItems = comp.items || [];
+      const timelineItems = timeline.items || [];
+
+      box.innerHTML = `
+        <div style="padding:18px">
+          <h2 style="margin:0 0 14px;font-size:22px">시장정보 인텔리전스</h2>
+
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px">
+            <div style="border:1px solid #ddd;border-radius:12px;padding:12px;background:white"><b>단가 리포트</b><br><span style="font-size:24px;font-weight:800">${reportItems.length}</span>건</div>
+            <div style="border:1px solid #ddd;border-radius:12px;padding:12px;background:white"><b>리베이트 상태</b><br><span style="font-size:24px;font-weight:800">${rebateItems.length}</span>건</div>
+            <div style="border:1px solid #ddd;border-radius:12px;padding:12px;background:white"><b>경쟁 비교</b><br><span style="font-size:24px;font-weight:800">${compItems.length}</span>건</div>
+            <div style="border:1px solid #ddd;border-radius:12px;padding:12px;background:white"><b>타임라인</b><br><span style="font-size:24px;font-weight:800">${timelineItems.length}</span>건</div>
+          </div>
+
+          <h3>모델별 단가 리포트</h3>
+          ${table(
+            ["일자","사업자","대리점","모델","010","MNP","기변"],
+            reportItems.slice(0,80).map(r=>`
+              <tr>
+                <td style="border:1px solid #ddd;padding:5px">${day(r.report_date)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.carrier)}</td>
+                <td style="border:1px solid #ddd;padding:5px">${fmt(r.agency_name)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.model_name)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${fmt(r.price_010)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${fmt(r.price_mnp)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${fmt(r.price_change)}</td>
+              </tr>
+            `)
+          )}
+
+          <h3>리베이트 현황</h3>
+          ${table(
+            ["사업자","모델","유형","약정","요금구간","변동금액","갱신"],
+            rebateItems.slice(0,100).map(r=>`
+              <tr>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.carrier)}</td>
+                <td style="border:1px solid #ddd;padding:5px">${fmt(r.model_group)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.sales_type)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.contract_type)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.plan_band)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${money(r.current_delta_krw)}</td>
+                <td style="border:1px solid #ddd;padding:5px">${day(r.last_updated_at)}</td>
+              </tr>
+            `)
+          )}
+
+          <h3>경쟁관계 분석</h3>
+          ${table(
+            ["모델","KT","SKT","LGU+","SKT-KT","LGU-KT"],
+            compItems.slice(0,80).map(r=>`
+              <tr>
+                <td style="border:1px solid #ddd;padding:5px">${fmt(r.model_group)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${money(r.kt_delta)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${money(r.skt_delta)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${money(r.lgu_delta)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${money(r.skt_vs_kt_gap)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:right">${money(r.lgu_vs_kt_gap)}</td>
+              </tr>
+            `)
+          )}
+
+          <h3>정책 타임라인</h3>
+          ${table(
+            ["시간","유형","사업자","요약"],
+            timelineItems.slice(0,80).map(r=>`
+              <tr>
+                <td style="border:1px solid #ddd;padding:5px;white-space:nowrap">${fmt((r.time || "").slice(0,16))}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.event_type)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.carrier)}</td>
+                <td style="border:1px solid #ddd;padding:5px">${fmt(r.summary)}</td>
+              </tr>
+            `)
+          )}
+        </div>
+      `;
+
+      return true;
+    } catch(e) {
+      box.innerHTML = `<div style="padding:18px;color:#b00020;font-weight:700">시장정보 로딩 실패: ${e.message}</div>`;
+      console.error(e);
+      return false;
+    }
+  }
+
+  function boot(){
+    renderMarketIntel();
+    setTimeout(renderMarketIntel, 500);
+    setTimeout(renderMarketIntel, 1500);
+  }
+
+  document.addEventListener("DOMContentLoaded", boot);
+  document.addEventListener("click", function(e){
+    const t = e.target && (e.target.innerText || e.target.textContent || "");
+    if (t.includes("시장정보") || t.includes("⑩")) {
+      setTimeout(renderMarketIntel, 200);
+      setTimeout(renderMarketIntel, 800);
+    }
+  });
+
+  window.renderMarketIntel = renderMarketIntel;
+})();
+</script>
 </body>
 </html>
