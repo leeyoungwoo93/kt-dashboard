@@ -1,0 +1,7 @@
+*.xlsx
+*.pyc
+__pycache__/
+*.db
+!app/seed/
+!app/seed/kt_dashboard_seed.db
+app/data/
