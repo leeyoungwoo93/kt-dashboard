@@ -2119,6 +2119,9 @@ async def dashboard():
         return f.read()
 
 # Market intelligence v2 API
-from app.market_api_patch import router as market2_router
-app.include_router(market2_router)
+try:
+    from app.market_api_patch import router as market2_router
+    app.include_router(market2_router)
+except Exception as exc:
+    print(f"market2 router load skipped: {exc}")
 

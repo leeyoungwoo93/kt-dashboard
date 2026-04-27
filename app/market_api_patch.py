@@ -1,131 +1,138 @@
-﻿from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query
 from pathlib import Path
 import os
 import sqlite3
+from typing import Any, Dict, List, Optional
 
-router = APIRouter(prefix="/api/market2")
+router = APIRouter(prefix="/api/market2", tags=["market2"])
 
-def _candidate_paths():
+TABLES = [
+    "raw_telegram_messages",
+    "market_event_bundles",
+    "market_events",
+    "policy_event_rows",
+    "market_report_rows",
+    "current_policy_state",
+    "compliance_notices",
+    "field_feedback",
+]
+
+
+def _candidate_paths() -> List[Path]:
     here = Path(__file__).resolve().parent
     root = here.parent
-    paths = []
-    env_path = os.environ.get("MARKET_DB_PATH")
+    cwd = Path.cwd()
+    paths: List[Path] = []
+
+    env_path = os.environ.get("MARKET_AUTOMATION_DB")
     if env_path:
         paths.append(Path(env_path))
+
     paths.extend([
         here / "market_automation.db",
         root / "market_automation.db",
-        Path.cwd() / "market_automation.db",
-        Path.cwd() / "app" / "market_automation.db",
+        cwd / "app" / "market_automation.db",
+        cwd / "market_automation.db",
     ])
 
+    # de-duplicate while preserving order
     seen = set()
-    out = []
+    unique: List[Path] = []
     for p in paths:
-        sp = str(p)
-        if sp not in seen:
-            seen.add(sp)
-            out.append(p)
-    return out
+        key = str(p)
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+    return unique
 
-def _table_count(conn, table):
-    try:
-        return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-    except Exception:
-        return 0
 
-def _pick_db_path():
-    existing = [p for p in _candidate_paths() if p.exists() and p.stat().st_size > 0]
-    best = None
-    best_score = -1
-
-    for p in existing:
+def get_db_path() -> Path:
+    for p in _candidate_paths():
         try:
-            conn = sqlite3.connect(str(p))
-            score = (
-                _table_count(conn, "market_report_rows")
-                + _table_count(conn, "current_policy_state")
-                + _table_count(conn, "market_events")
-                + _table_count(conn, "policy_event_rows")
-            )
-            conn.close()
-            if score > best_score:
-                best = p
-                best_score = score
-        except Exception:
-            pass
-
-    if best:
-        return best
-    if existing:
-        return existing[0]
+            if p.exists() and p.stat().st_size > 0:
+                return p
+        except OSError:
+            continue
     return _candidate_paths()[0]
 
-def _connect():
-    path = _pick_db_path()
-    conn = sqlite3.connect(str(path))
+
+def connect() -> sqlite3.Connection:
+    db_path = get_db_path()
+    conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    return conn, path
+    return conn
 
-def _cols(conn, table):
-    try:
-        return [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-    except Exception:
-        return []
 
-def _has_table(conn, table):
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        (table,)
+        (table_name,),
     ).fetchone()
     return row is not None
 
-def _num(v):
-    try:
-        if v is None or v == "":
-            return None
-        return int(float(v))
-    except Exception:
-        return None
 
-def _pick(cols, names):
-    for n in names:
-        if n in cols:
-            return n
-    return None
+def table_count(conn: sqlite3.Connection, table_name: str) -> int:
+    if not table_exists(conn, table_name):
+        return 0
+    try:
+        return int(conn.execute(f"SELECT COUNT(*) AS cnt FROM {table_name}").fetchone()["cnt"] or 0)
+    except sqlite3.Error:
+        return 0
+
+
+def columns(conn: sqlite3.Connection, table_name: str) -> List[str]:
+    if not table_exists(conn, table_name):
+        return []
+    return [r[1] for r in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
+
+
+def as_items(rows: List[sqlite3.Row]) -> Dict[str, Any]:
+    return {"items": [dict(r) for r in rows]}
+
+
+def safe_int(v: Optional[Any]) -> int:
+    if v is None or v == "":
+        return 0
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+
 
 @router.get("/health")
-def market2_health():
-    conn, path = _connect()
-    try:
-        tables = [
-            "raw_telegram_messages",
-            "market_event_bundles",
-            "market_events",
-            "policy_event_rows",
-            "market_report_rows",
-            "current_policy_state",
-            "compliance_notices",
-            "field_feedback",
-        ]
-        counts = {t: _table_count(conn, t) for t in tables}
-        return {
-            "db_path": str(path),
-            "db_exists": path.exists(),
-            "db_size": path.stat().st_size if path.exists() else 0,
-            "counts": counts,
-        }
-    finally:
-        conn.close()
+def market2_health() -> Dict[str, Any]:
+    db_path = get_db_path()
+    exists = db_path.exists()
+    size = db_path.stat().st_size if exists else 0
+
+    counts: Dict[str, int] = {}
+    schemas: Dict[str, List[str]] = {}
+    if exists and size > 0:
+        with connect() as conn:
+            counts = {t: table_count(conn, t) for t in TABLES}
+            schemas = {t: columns(conn, t) for t in TABLES if table_exists(conn, t)}
+
+    return {
+        "ok": exists and size > 0,
+        "db_path": str(db_path),
+        "db_exists": exists,
+        "db_size": size,
+        "candidate_paths": [str(p) for p in _candidate_paths()],
+        "counts": counts,
+        "schemas": schemas,
+    }
+
 
 @router.get("/reports")
-def market2_reports(limit: int = Query(300, ge=1, le=1000)):
-    conn, path = _connect()
-    try:
-        if not _has_table(conn, "market_report_rows"):
+def market2_reports(limit: int = Query(300, ge=1, le=1000)) -> Dict[str, Any]:
+    with connect() as conn:
+        if not table_exists(conn, "market_report_rows"):
             return {"items": []}
-
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT
                 report_date,
                 carrier,
@@ -136,28 +143,21 @@ def market2_reports(limit: int = Query(300, ge=1, le=1000)):
                 price_change,
                 notes
             FROM market_report_rows
-            ORDER BY report_date DESC, id DESC
+            ORDER BY datetime(report_date) DESC, rowid DESC
             LIMIT ?
-        """, (limit,)).fetchall()
+            """,
+            (limit,),
+        ).fetchall()
+    return as_items(rows)
 
-        return {"items": [dict(r) for r in rows]}
-    except Exception as e:
-        return {"items": [], "error": str(e), "db_path": str(path)}
-    finally:
-        conn.close()
 
 @router.get("/rebate-status")
-def market2_rebate_status():
-    conn, path = _connect()
-    try:
-        if not _has_table(conn, "current_policy_state"):
+def market2_rebate_status(limit: int = Query(300, ge=1, le=1000)) -> Dict[str, Any]:
+    with connect() as conn:
+        if not table_exists(conn, "current_policy_state"):
             return {"items": []}
-
-        cols = _cols(conn, "current_policy_state")
-        last_col = _pick(cols, ["last_updated_at", "updated_at", "source_time", "created_at"])
-        order_col = last_col or "id"
-
-        rows = conn.execute(f"""
+        rows = conn.execute(
+            """
             SELECT
                 carrier,
                 model_group,
@@ -165,105 +165,100 @@ def market2_rebate_status():
                 contract_type,
                 plan_band,
                 current_delta_krw,
-                {last_col if last_col else "''"} AS last_updated_at
+                last_updated_at
             FROM current_policy_state
-            ORDER BY model_group, carrier, {order_col} DESC
-        """).fetchall()
+            ORDER BY datetime(last_updated_at) DESC, rowid DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return as_items(rows)
 
-        return {"items": [dict(r) for r in rows]}
-    except Exception as e:
-        return {"items": [], "error": str(e), "db_path": str(path)}
-    finally:
-        conn.close()
 
 @router.get("/competition")
-def market2_competition():
-    conn, path = _connect()
-    try:
-        if not _has_table(conn, "current_policy_state"):
+def market2_competition() -> Dict[str, Any]:
+    with connect() as conn:
+        if not table_exists(conn, "current_policy_state"):
             return {"items": []}
-
-        rows = conn.execute("""
-            SELECT carrier, model_group, current_delta_krw
+        rows = conn.execute(
+            """
+            SELECT
+                model_group,
+                MAX(CASE WHEN UPPER(carrier) = 'KT' THEN current_delta_krw END) AS kt_delta,
+                MAX(CASE WHEN UPPER(carrier) = 'SKT' THEN current_delta_krw END) AS skt_delta,
+                MAX(CASE WHEN UPPER(carrier) IN ('LGU', 'LGU+', 'LGT') THEN current_delta_krw END) AS lgu_delta,
+                MAX(last_updated_at) AS last_updated_at
             FROM current_policy_state
             WHERE model_group IS NOT NULL
-              AND model_group != ''
-              AND model_group != 'UNKNOWN'
-        """).fetchall()
+              AND TRIM(model_group) <> ''
+              AND TRIM(model_group) <> 'UNKNOWN'
+            GROUP BY model_group
+            ORDER BY datetime(last_updated_at) DESC, model_group
+            """
+        ).fetchall()
 
-        by_model = {}
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        kt = r["kt_delta"]
+        skt = r["skt_delta"]
+        lgu = r["lgu_delta"]
+        kt_base = safe_int(kt)
+        skt_gap = safe_int(skt) - kt_base
+        lgu_gap = safe_int(lgu) - kt_base
+        items.append(
+            {
+                "model_group": r["model_group"],
+                "kt_delta": kt,
+                "skt_delta": skt,
+                "lgu_delta": lgu,
+                "skt_vs_kt_gap": skt_gap,
+                "lgu_vs_kt_gap": lgu_gap,
+                "last_updated_at": r["last_updated_at"],
+            }
+        )
 
-        for r in rows:
-            model = r["model_group"]
-            carrier = (r["carrier"] or "").upper()
-            delta = _num(r["current_delta_krw"])
+    items.sort(key=lambda x: max(abs(safe_int(x.get("skt_vs_kt_gap"))), abs(safe_int(x.get("lgu_vs_kt_gap")))), reverse=True)
+    return {"items": items}
 
-            if not model or delta is None:
-                continue
-
-            if model not in by_model:
-                by_model[model] = {"model_group": model, "kt_delta": None, "skt_delta": None, "lgu_delta": None}
-
-            if carrier == "KT":
-                key = "kt_delta"
-            elif carrier == "SKT":
-                key = "skt_delta"
-            elif carrier.startswith("LG"):
-                key = "lgu_delta"
-            else:
-                continue
-
-            old = by_model[model][key]
-            if old is None or delta > old:
-                by_model[model][key] = delta
-
-        items = []
-        for model in sorted(by_model):
-            x = by_model[model]
-            kt_base = x["kt_delta"] if x["kt_delta"] is not None else 0
-            skt = x["skt_delta"]
-            lgu = x["lgu_delta"]
-            x["skt_vs_kt_gap"] = (skt - kt_base) if skt is not None else 0
-            x["lgu_vs_kt_gap"] = (lgu - kt_base) if lgu is not None else 0
-            items.append(x)
-
-        return {"items": items}
-    except Exception as e:
-        return {"items": [], "error": str(e), "db_path": str(path)}
-    finally:
-        conn.close()
 
 @router.get("/timeline")
-def market2_timeline(limit: int = Query(100, ge=1, le=500)):
-    conn, path = _connect()
-    try:
-        if not _has_table(conn, "market_events"):
+def market2_timeline(limit: int = Query(120, ge=1, le=1000)) -> Dict[str, Any]:
+    with connect() as conn:
+        if not table_exists(conn, "market_events"):
             return {"items": []}
-
-        cols = _cols(conn, "market_events")
-        time_col = _pick(cols, ["source_time", "event_time", "created_at", "time", "message_time"])
-        type_col = _pick(cols, ["event_type", "type"])
-        carrier_col = _pick(cols, ["carrier"])
-        summary_col = _pick(cols, ["summary", "title", "notes", "raw_text", "source_text", "message_text", "text"])
-
-        select_parts = [
-            f"{time_col} AS time" if time_col else "'' AS time",
-            f"{type_col} AS event_type" if type_col else "'' AS event_type",
-            f"{carrier_col} AS carrier" if carrier_col else "'' AS carrier",
-            f"{summary_col} AS summary" if summary_col else "'' AS summary",
-        ]
-
-        order_expr = time_col if time_col else "id"
-        sql = f"""
-            SELECT {", ".join(select_parts)}
+        rows = conn.execute(
+            """
+            SELECT
+                source_time AS time,
+                source_time,
+                event_type,
+                carrier,
+                summary
             FROM market_events
-            ORDER BY {order_expr} DESC
+            ORDER BY datetime(source_time) DESC, rowid DESC
             LIMIT ?
-        """
+            """,
+            (limit,),
+        ).fetchall()
+    return as_items(rows)
 
-        rows = conn.execute(sql, (limit,)).fetchall()
-        return {"items": [dict(r) for r in rows]}
-    except Exception as e:
-        return {"items": [], "error": str(e), "db_path": str(path)}
-    finally:
-        conn.close()
+
+@router.get("/summary")
+def market2_summary() -> Dict[str, Any]:
+    with connect() as conn:
+        counts = {t: table_count(conn, t) for t in TABLES}
+        latest_event = None
+        if table_exists(conn, "market_events"):
+            latest_event = conn.execute(
+                "SELECT source_time, event_type, carrier, summary FROM market_events ORDER BY datetime(source_time) DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+        latest_report = None
+        if table_exists(conn, "market_report_rows"):
+            latest_report = conn.execute(
+                "SELECT report_date, carrier, agency_name, model_name FROM market_report_rows ORDER BY datetime(report_date) DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+    return {
+        "counts": counts,
+        "latest_event": dict(latest_event) if latest_event else None,
+        "latest_report": dict(latest_report) if latest_report else None,
+    }

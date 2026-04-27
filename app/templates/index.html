@@ -3734,6 +3734,176 @@ init();
   window.renderMarketIntelV2 = renderMarketIntelV2;
 })();
 </script>
+<script id="market-auto-dashboard-v3">
+(function(){
+  const API = "/api/market2";
+
+  function esc(v){
+    if (v === null || v === undefined || v === "") return "-";
+    return String(v).replace(/[&<>'"]/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c];
+    });
+  }
+  function day(v){ return v ? esc(String(v).slice(0,10)) : "-"; }
+  function time16(v){ return v ? esc(String(v).replace("T"," ").slice(0,16)) : "-"; }
+  function money(v){
+    if (v === null || v === undefined || v === "") return "-";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    if (n === 0) return "0";
+    return Math.round(n / 10000).toLocaleString("ko-KR") + "만";
+  }
+  function rawPrice(v){
+    if (v === null || v === undefined || v === "") return "-";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return esc(v);
+    return n.toLocaleString("ko-KR");
+  }
+  function card(title, value, sub){
+    return `<div style="border:1px solid var(--border,#ddd);border-radius:12px;padding:12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+      <div style="font-size:11px;color:var(--muted,#777);font-weight:700">${title}</div>
+      <div style="font-size:24px;line-height:1.35;font-weight:900;color:var(--t1,#005b5b)">${value}</div>
+      <div style="font-size:10px;color:var(--muted,#777)">${sub || ""}</div>
+    </div>`;
+  }
+  function table(headers, rows, emptyText){
+    return `<div style="overflow:auto;max-height:360px;border:1px solid var(--border,#ddd);border-radius:10px;background:#fff">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px">
+        <thead style="position:sticky;top:0;z-index:1"><tr>${headers.map(h=>`<th style="border-bottom:1px solid var(--border,#ddd);padding:7px;background:#f7f9f9;text-align:center;white-space:nowrap">${h}</th>`).join("")}</tr></thead>
+        <tbody>${rows.length ? rows.join("") : `<tr><td colspan="${headers.length}" style="padding:14px;text-align:center;color:#888">${emptyText || "데이터 없음"}</td></tr>`}</tbody>
+      </table>
+    </div>`;
+  }
+  function section(title, sub, html){
+    return `<div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:6px">
+        <div style="font-size:13px;font-weight:900;color:var(--sub,#333)">${title}</div>
+        <div style="font-size:10px;color:var(--muted,#777)">${sub || ""}</div>
+      </div>
+      ${html}
+    </div>`;
+  }
+  function mount(){
+    const tab = document.getElementById("tab9");
+    if (!tab) return null;
+    let box = document.getElementById("marketAutoDashboard");
+    if (!box) {
+      box = document.createElement("section");
+      box.id = "marketAutoDashboard";
+      box.style.marginBottom = "12px";
+      tab.insertBefore(box, tab.firstChild);
+    }
+    return box;
+  }
+  async function getJson(path){
+    const res = await fetch(API + path, {cache:"no-store"});
+    if (!res.ok) throw new Error(path + " " + res.status);
+    return await res.json();
+  }
+  async function render(){
+    const box = mount();
+    if (!box) return false;
+    box.innerHTML = `<div style="border:1px solid var(--border,#ddd);border-radius:14px;padding:14px;background:#fff">시장정보 자동화 데이터를 불러오는 중...</div>`;
+    try {
+      const [health, reports, rebate, comp, timeline] = await Promise.all([
+        getJson("/health"),
+        getJson("/reports?limit=300"),
+        getJson("/rebate-status?limit=300"),
+        getJson("/competition"),
+        getJson("/timeline?limit=120")
+      ]);
+      const counts = health.counts || {};
+      const reportItems = reports.items || [];
+      const rebateItems = rebate.items || [];
+      const compItems = comp.items || [];
+      const timelineItems = timeline.items || [];
+      const latestReport = reportItems[0] && reportItems[0].report_date;
+      const latestPolicy = rebateItems[0] && rebateItems[0].last_updated_at;
+      const latestEvent = timelineItems[0] && (timelineItems[0].time || timelineItems[0].source_time);
+
+      const reportRows = reportItems.slice(0,160).map(r => `<tr>
+        <td style="border-bottom:1px solid #eee;padding:6px;white-space:nowrap">${time16(r.report_date)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center;font-weight:700">${esc(r.carrier)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px">${esc(r.agency_name)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center;font-weight:700">${esc(r.model_name)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right">${rawPrice(r.price_010)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right">${rawPrice(r.price_mnp)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right">${rawPrice(r.price_change)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;color:#666;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.notes)}</td>
+      </tr>`);
+
+      const rebateRows = rebateItems.slice(0,180).map(r => `<tr>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center;font-weight:700">${esc(r.carrier)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;font-weight:700">${esc(r.model_group)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${esc(r.sales_type)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${esc(r.contract_type)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${esc(r.plan_band)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right;font-weight:800;color:${Number(r.current_delta_krw) >= 0 ? '#087f5b' : '#c92a2a'}">${money(r.current_delta_krw)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;white-space:nowrap">${time16(r.last_updated_at)}</td>
+      </tr>`);
+
+      const compRows = compItems.slice(0,120).map(r => `<tr>
+        <td style="border-bottom:1px solid #eee;padding:6px;font-weight:800">${esc(r.model_group)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right">${money(r.kt_delta)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right">${money(r.skt_delta)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right">${money(r.lgu_delta)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right;font-weight:800;color:${Number(r.skt_vs_kt_gap) >= 0 ? '#c92a2a' : '#087f5b'}">${money(r.skt_vs_kt_gap)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:right;font-weight:800;color:${Number(r.lgu_vs_kt_gap) >= 0 ? '#c92a2a' : '#087f5b'}">${money(r.lgu_vs_kt_gap)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;white-space:nowrap">${time16(r.last_updated_at)}</td>
+      </tr>`);
+
+      const timelineRows = timelineItems.slice(0,120).map(r => `<tr>
+        <td style="border-bottom:1px solid #eee;padding:6px;white-space:nowrap">${time16(r.time || r.source_time)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${esc(r.event_type)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center;font-weight:700">${esc(r.carrier)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px">${esc(r.summary)}</td>
+      </tr>`);
+
+      box.innerHTML = `<div style="border:1px solid var(--border,#ddd);border-radius:14px;padding:14px;background:linear-gradient(180deg,#ffffff,#f8fbfb);box-shadow:0 3px 12px rgba(0,0,0,.05)">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px">
+          <div>
+            <div style="font-size:18px;font-weight:900;color:var(--t1,#005b5b)">시장정보 자동화 대시보드</div>
+            <div style="font-size:11px;color:var(--muted,#777);margin-top:3px">Telegram 수집 DB 기반 단가 리포트, 리베이트 상태, 경쟁 격차, 정책 타임라인 통합 뷰</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+            <button class="rst" onclick="window.renderMarketAutoDashboard && window.renderMarketAutoDashboard()" style="font-size:10px">새로고침</button>
+            <a href="/api/market2/health" target="_blank" style="font-size:10px;color:var(--t1,#005b5b);font-weight:800;text-decoration:none">API 진단</a>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px">
+          ${card("단가 리포트", esc(counts.market_report_rows ?? reportItems.length) + "건", latestReport ? "최신 " + time16(latestReport) : "")}
+          ${card("리베이트 상태", esc(counts.current_policy_state ?? rebateItems.length) + "건", latestPolicy ? "최신 " + time16(latestPolicy) : "")}
+          ${card("정책 이벤트", esc(counts.policy_event_rows ?? 0) + "건", latestEvent ? "최신 " + time16(latestEvent) : "")}
+          ${card("수집 메시지", esc(counts.raw_telegram_messages ?? 0) + "건", health.ok ? "DB 연결 정상" : "DB 확인 필요")}
+        </div>
+        ${section("모델별 단가 리포트", "최근 160건", table(["일시","사업자","대리점","모델","010","MNP","기변","원문"], reportRows))}
+        ${section("리베이트 현황", "현재 정책 상태 최근 180건", table(["사업자","모델","유형","약정","요금구간","변동금액","갱신"], rebateRows))}
+        ${section("경쟁 격차 분석", "양수는 경쟁사 우위, 음수는 KT 우위로 해석", table(["모델","KT","SKT","LGU+","SKT-KT","LGU-KT","갱신"], compRows))}
+        ${section("정책 타임라인", "최근 120건", table(["시간","유형","사업자","요약"], timelineRows))}
+      </div>`;
+      return true;
+    } catch (e) {
+      box.innerHTML = `<div style="border:1px solid #f1c0c0;border-radius:14px;padding:14px;background:#fff5f5;color:#b00020;font-weight:800">
+        시장정보 자동화 대시보드 로딩 실패: ${esc(e.message)}<br>
+        <span style="font-size:11px;color:#666;font-weight:400">/api/market2/health에서 DB 경로와 테이블 카운트를 먼저 확인하세요.</span>
+      </div>`;
+      console.error(e);
+      return false;
+    }
+  }
+  function boot(){
+    render();
+    setTimeout(render, 700);
+  }
+  document.addEventListener("DOMContentLoaded", boot);
+  document.addEventListener("click", function(e){
+    const t = e.target && (e.target.innerText || e.target.textContent || "");
+    if (t.includes("시장정보") || t.includes("⑩")) setTimeout(render, 250);
+  });
+  window.renderMarketAutoDashboard = render;
+})();
+</script>
+
 </body>
 </html>
 
