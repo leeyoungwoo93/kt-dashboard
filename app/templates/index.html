@@ -3554,5 +3554,233 @@ async function init(){
 }
 init();
 </script>
+<!-- 시장정보 패널 -->
+<style>
+  .market-float-btn{
+    position:fixed;right:22px;bottom:22px;z-index:9999;
+    border:0;border-radius:999px;padding:12px 18px;
+    background:#111827;color:#fff;font-weight:800;
+    box-shadow:0 10px 25px rgba(0,0,0,.25);cursor:pointer;
+  }
+  .market-panel{
+    position:fixed;right:22px;bottom:78px;width:min(1100px,calc(100vw - 44px));
+    height:min(760px,calc(100vh - 110px));z-index:9998;
+    background:#fff;border:1px solid #e5e7eb;border-radius:18px;
+    box-shadow:0 20px 60px rgba(0,0,0,.28);
+    display:none;overflow:hidden;color:#111827;
+  }
+  .market-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;border-bottom:1px solid #e5e7eb;background:#f9fafb;
+  }
+  .market-head b{font-size:16px}
+  .market-tabs{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid #e5e7eb}
+  .market-tabs button{
+    border:1px solid #d1d5db;background:#fff;border-radius:999px;
+    padding:7px 12px;font-size:12px;font-weight:800;cursor:pointer;
+  }
+  .market-tabs button.active{background:#111827;color:#fff;border-color:#111827}
+  .market-body{height:calc(100% - 101px);overflow:auto;padding:14px 18px}
+  .market-table{width:100%;border-collapse:collapse;font-size:12px}
+  .market-table th,.market-table td{
+    border-bottom:1px solid #edf0f3;padding:7px 8px;text-align:left;white-space:nowrap;
+  }
+  .market-table th{position:sticky;top:0;background:#f9fafb;z-index:1}
+  .market-badge{display:inline-block;border-radius:999px;padding:3px 7px;font-size:11px;font-weight:800}
+  .market-badge.skt{background:#fee2e2;color:#991b1b}
+  .market-badge.lgu{background:#ede9fe;color:#5b21b6}
+  .market-badge.kt{background:#e0f2fe;color:#075985}
+  .market-muted{color:#6b7280}
+  .market-num{text-align:right!important;font-variant-numeric:tabular-nums}
+  .market-pos{color:#dc2626;font-weight:800}
+  .market-neg{color:#2563eb;font-weight:800}
+</style>
+
+<button class="market-float-btn" onclick="toggleMarketPanel()">시장정보</button>
+
+<div id="marketPanel" class="market-panel">
+  <div class="market-head">
+    <b>시장정보 인텔리전스</b>
+    <button onclick="toggleMarketPanel()" style="border:0;background:transparent;font-size:20px;cursor:pointer">×</button>
+  </div>
+
+  <div class="market-tabs">
+    <button class="active" onclick="loadMarketView('reports', this)">모델별 단가</button>
+    <button onclick="loadMarketView('rebate', this)">리베이트 현황</button>
+    <button onclick="loadMarketView('competition', this)">경쟁관계</button>
+    <button onclick="loadMarketView('timeline', this)">타임라인</button>
+  </div>
+
+  <div id="marketBody" class="market-body">
+    <div class="market-muted">시장정보를 불러오는 중...</div>
+  </div>
+</div>
+
+<script>
+function toggleMarketPanel(){
+  const p=document.getElementById('marketPanel');
+  p.style.display=p.style.display==='block'?'none':'block';
+  if(p.style.display==='block') loadMarketView('reports');
+}
+
+function setMarketActive(btn){
+  document.querySelectorAll('.market-tabs button').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+}
+
+function fmtMarketNum(v){
+  if(v===null||v===undefined||v==='') return '-';
+  const n=Number(v);
+  if(Number.isNaN(n)) return v;
+  return n.toLocaleString();
+}
+
+function fmtMarketMoney(v){
+  if(v===null||v===undefined||v==='') return '-';
+  const n=Number(v);
+  if(Number.isNaN(n)) return v;
+  const cls=n>0?'market-pos':n<0?'market-neg':'';
+  return `<span class="${cls}">${n.toLocaleString()}</span>`;
+}
+
+function carrierBadge(c){
+  const x=(c||'UNKNOWN').toUpperCase();
+  const cls=x==='SKT'?'skt':x==='LGU'?'lgu':x==='KT'?'kt':'';
+  return `<span class="market-badge ${cls}">${x}</span>`;
+}
+
+async function loadMarketView(type, btn){
+  setMarketActive(btn);
+  const body=document.getElementById('marketBody');
+  body.innerHTML='<div class="market-muted">불러오는 중...</div>';
+
+  try{
+    if(type==='reports'){
+      const r=await fetch('/api/market/reports?limit=300').then(x=>x.json());
+      body.innerHTML=renderMarketReports(r.items||[]);
+    }else if(type==='rebate'){
+      const r=await fetch('/api/market/rebate-status').then(x=>x.json());
+      body.innerHTML=renderMarketRebate(r.items||[]);
+    }else if(type==='competition'){
+      const r=await fetch('/api/market/competition').then(x=>x.json());
+      body.innerHTML=renderMarketCompetition(r.items||[]);
+    }else{
+      const r=await fetch('/api/market/timeline?limit=150').then(x=>x.json());
+      body.innerHTML=renderMarketTimeline(r.items||[]);
+    }
+  }catch(e){
+    body.innerHTML=`<div class="market-muted">시장정보 로드 실패: ${e.message}</div>`;
+  }
+}
+
+function renderMarketReports(items){
+  if(!items.length) return '<div class="market-muted">데이터 없음</div>';
+  return `
+    <table class="market-table">
+      <thead>
+        <tr>
+          <th>일시</th><th>사업자</th><th>대리점</th><th>모델</th>
+          <th class="market-num">010</th><th class="market-num">MNP</th><th class="market-num">기변</th><th>원문</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(x=>`
+          <tr>
+            <td>${(x.report_date||'').slice(0,16)}</td>
+            <td>${carrierBadge(x.carrier)}</td>
+            <td>${x.agency_name||''}</td>
+            <td><b>${x.model_name||''}</b></td>
+            <td class="market-num">${fmtMarketNum(x.price_010)}</td>
+            <td class="market-num">${fmtMarketNum(x.price_mnp)}</td>
+            <td class="market-num">${fmtMarketNum(x.price_change)}</td>
+            <td class="market-muted">${x.notes||''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderMarketRebate(items){
+  if(!items.length) return '<div class="market-muted">데이터 없음</div>';
+  return `
+    <table class="market-table">
+      <thead>
+        <tr>
+          <th>모델</th><th>사업자</th><th>유형</th><th>약정</th><th>요금구간</th>
+          <th class="market-num">변동금액</th><th>최근 업데이트</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(x=>`
+          <tr>
+            <td><b>${x.model_group||''}</b></td>
+            <td>${carrierBadge(x.carrier)}</td>
+            <td>${x.sales_type||'-'}</td>
+            <td>${x.contract_type||'-'}</td>
+            <td>${x.plan_band||'-'}</td>
+            <td class="market-num">${fmtMarketMoney(x.current_delta_krw)}</td>
+            <td>${(x.last_updated_at||'').slice(0,16)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderMarketCompetition(items){
+  if(!items.length) return '<div class="market-muted">데이터 없음</div>';
+  return `
+    <table class="market-table">
+      <thead>
+        <tr>
+          <th>모델</th>
+          <th class="market-num">KT</th>
+          <th class="market-num">SKT</th>
+          <th class="market-num">LGU</th>
+          <th class="market-num">SKT-KT Gap</th>
+          <th class="market-num">LGU-KT Gap</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(x=>`
+          <tr>
+            <td><b>${x.model_group||''}</b></td>
+            <td class="market-num">${fmtMarketMoney(x.kt_delta)}</td>
+            <td class="market-num">${fmtMarketMoney(x.skt_delta)}</td>
+            <td class="market-num">${fmtMarketMoney(x.lgu_delta)}</td>
+            <td class="market-num">${fmtMarketMoney(x.skt_vs_kt_gap)}</td>
+            <td class="market-num">${fmtMarketMoney(x.lgu_vs_kt_gap)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderMarketTimeline(items){
+  if(!items.length) return '<div class="market-muted">데이터 없음</div>';
+  return `
+    <table class="market-table">
+      <thead>
+        <tr>
+          <th>일시</th><th>유형</th><th>사업자</th><th>요약</th><th class="market-num">신뢰도</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(x=>`
+          <tr>
+            <td>${(x.source_time||'').slice(0,16)}</td>
+            <td>${x.event_type||''}</td>
+            <td>${carrierBadge(x.carrier)}</td>
+            <td style="white-space:normal;min-width:420px">${x.raw_summary||''}</td>
+            <td class="market-num">${x.confidence ?? ''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+</script>
 </body>
 </html>
