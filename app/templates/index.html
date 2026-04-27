@@ -3782,5 +3782,163 @@ function renderMarketTimeline(items){
   `;
 }
 </script>
+<script>
+async function loadMarketIntelPatch(){
+  const findLoadingBox = () => {
+    const nodes = [...document.querySelectorAll("div,section,article,main")];
+    return nodes
+      .filter(el => (el.innerText || "").includes("시장정보를 불러오는 중"))
+      .sort((a,b) => a.innerText.length - b.innerText.length)[0];
+  };
+
+  const box = findLoadingBox();
+  if (!box) return;
+
+  try {
+    const [reportsRes, rebateRes, compRes, timelineRes] = await Promise.all([
+      fetch("/api/market/reports?limit=80"),
+      fetch("/api/market/rebate-status"),
+      fetch("/api/market/competition"),
+      fetch("/api/market/timeline?limit=80")
+    ]);
+
+    const reports = await reportsRes.json();
+    const rebate = await rebateRes.json();
+    const comp = await compRes.json();
+    const timeline = await timelineRes.json();
+
+    const reportItems = reports.items || [];
+    const rebateItems = rebate.items || [];
+    const compItems = comp.items || [];
+    const timelineItems = timeline.items || [];
+
+    const fmt = v => v === null || v === undefined || v === "" ? "-" : v;
+    const money = v => {
+      if (v === null || v === undefined) return "-";
+      return Math.round(v / 10000).toLocaleString() + "만";
+    };
+
+    box.innerHTML = `
+      <div style="padding:16px">
+        <h2 style="margin:0 0 12px">시장정보 인텔리전스</h2>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+          <div style="padding:12px;border:1px solid #ddd;border-radius:10px">
+            <b>단가 리포트</b><br><span style="font-size:22px">${reportItems.length}</span>건
+          </div>
+          <div style="padding:12px;border:1px solid #ddd;border-radius:10px">
+            <b>리베이트 상태</b><br><span style="font-size:22px">${rebateItems.length}</span>건
+          </div>
+          <div style="padding:12px;border:1px solid #ddd;border-radius:10px">
+            <b>경쟁 비교</b><br><span style="font-size:22px">${compItems.length}</span>건
+          </div>
+          <div style="padding:12px;border:1px solid #ddd;border-radius:10px">
+            <b>타임라인</b><br><span style="font-size:22px">${timelineItems.length}</span>건
+          </div>
+        </div>
+
+        <h3>모델별 단가 리포트</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+          <thead>
+            <tr>
+              <th>일자</th><th>사업자</th><th>대리점</th><th>모델</th>
+              <th>010</th><th>MNP</th><th>기변</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reportItems.slice(0,40).map(r => `
+              <tr>
+                <td>${fmt((r.report_date || "").slice(0,10))}</td>
+                <td>${fmt(r.carrier)}</td>
+                <td>${fmt(r.agency_name)}</td>
+                <td>${fmt(r.model_name)}</td>
+                <td>${fmt(r.price_010)}</td>
+                <td>${fmt(r.price_mnp)}</td>
+                <td>${fmt(r.price_change)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+
+        <h3>리베이트 현황</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+          <thead>
+            <tr>
+              <th>사업자</th><th>모델</th><th>유형</th><th>약정</th><th>요금구간</th><th>변동금액</th><th>갱신</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rebateItems.slice(0,50).map(r => `
+              <tr>
+                <td>${fmt(r.carrier)}</td>
+                <td>${fmt(r.model_group)}</td>
+                <td>${fmt(r.sales_type)}</td>
+                <td>${fmt(r.contract_type)}</td>
+                <td>${fmt(r.plan_band)}</td>
+                <td>${money(r.current_delta_krw)}</td>
+                <td>${fmt((r.last_updated_at || "").slice(0,10))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+
+        <h3>경쟁관계 분석</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+          <thead>
+            <tr>
+              <th>모델</th><th>KT</th><th>SKT</th><th>LGU+</th><th>SKT-KT</th><th>LGU-KT</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${compItems.slice(0,40).map(r => `
+              <tr>
+                <td>${fmt(r.model_group)}</td>
+                <td>${money(r.kt_delta)}</td>
+                <td>${money(r.skt_delta)}</td>
+                <td>${money(r.lgu_delta)}</td>
+                <td>${money(r.skt_vs_kt_gap)}</td>
+                <td>${money(r.lgu_vs_kt_gap)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+
+        <h3>정책 타임라인</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr>
+              <th>시간</th><th>유형</th><th>사업자</th><th>요약</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${timelineItems.slice(0,40).map(r => `
+              <tr>
+                <td>${fmt((r.time || "").slice(0,16))}</td>
+                <td>${fmt(r.event_type)}</td>
+                <td>${fmt(r.carrier)}</td>
+                <td>${fmt(r.summary)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    box.innerHTML = `<div style="padding:16px;color:red">시장정보 로딩 실패: ${e.message}</div>`;
+    console.error(e);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(loadMarketIntelPatch, 500);
+});
+
+document.addEventListener("click", e => {
+  const txt = e.target?.innerText || "";
+  if (txt.includes("시장정보") || txt.includes("⑩")) {
+    setTimeout(loadMarketIntelPatch, 300);
+  }
+});
+</script>
 </body>
 </html>
