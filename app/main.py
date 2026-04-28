@@ -54,6 +54,11 @@ class StoreSales(Base):
     churn = Column(Integer, default=0)
     revenue = Column(Float, default=0.0)
     arpu = Column(Float, default=0.0)
+    # 지도용 위치 정보 (주소 데이터 업로드 시 채워짐)
+    address = Column(String, default="")
+    lat = Column(Float, default=None)
+    lng = Column(Float, default=None)
+    region = Column(String, default="")
 
 class CommonSubsidy(Base):
     __tablename__ = "common_subsidy"
@@ -976,11 +981,15 @@ def _load_ktoa(contents):
 
     # 컬럼 탐색: [목적]_[출발] 구조
     def fc(dest, src):
-        """[목적사업자]_[출발사업자] 컬럼 찾기
+        """[목적사업자]_[출발사업자] 컬럼 찾기 (정확한 매칭)
         예) KT_SKT = KT로 이동(출발=SKT) → KT유입
             SKT_KT = SKT로 이동(출발=KT) → KT이탈
+        주의: 'LGU+_SKT'는 src='KT' 검색 시 부분매칭되지 않도록 정확히 비교
         """
-        return next((c for c in all_cols if c.startswith(f"{dest}_") and src in c), None)
+        for c in all_cols:
+            if c == f"{dest}_{src}" or c == f"{dest}_{src}+":
+                return c
+        return None
 
     records = []
     for _, row in rows.iterrows():
@@ -1111,7 +1120,8 @@ def _migrate(engine):
             "agency_code VARCHAR DEFAULT ''", "store VARCHAR DEFAULT ''", "contact VARCHAR DEFAULT ''",
             "channel VARCHAR DEFAULT ''", "sale INTEGER DEFAULT 0", "new_sale INTEGER DEFAULT 0",
             "new010 INTEGER DEFAULT 0", "mnp INTEGER DEFAULT 0", "premium INTEGER DEFAULT 0",
-            "churn INTEGER DEFAULT 0", "revenue FLOAT DEFAULT 0", "arpu FLOAT DEFAULT 0"
+            "churn INTEGER DEFAULT 0", "revenue FLOAT DEFAULT 0", "arpu FLOAT DEFAULT 0",
+            "address VARCHAR DEFAULT ''", "lat FLOAT", "lng FLOAT", "region VARCHAR DEFAULT ''",
         ]:
             add_col(conn, StoreSales.__tablename__, col_def)
 
@@ -1586,15 +1596,26 @@ async def get_summary(
             .filter(Commission.item_code!="",Commission.item_code!="nan")
             .group_by(Commission.item_code).order_by(func.sum(Commission.amount).desc()).all()]
 
-        # 정책명별 집계 (정책명 + 코드 + 채널 + 금액)
-        comm_by_policy=[{
-            "policy_name":r[0],"policy_code":r[1],"channel":r[2],"amount":float(r[3] or 0)}
-            for r in db.query(Commission.commission_policy_name,Commission.commission_policy,
-                              Commission.channel_type,func.sum(Commission.amount))
-            .filter(Commission.commission_policy_name!="",Commission.commission_policy_name!="nan",
-                    Commission.amount>0)
-            .group_by(Commission.commission_policy_name,Commission.commission_policy,Commission.channel_type)
-            .order_by(func.sum(Commission.amount).desc()).limit(25).all()]
+        # 정책명별 집계 (정책명 + 코드 + 채널 + 금액 + 분류)
+        _raw_policy = db.query(Commission.commission_policy_name,Commission.commission_policy,
+                              Commission.channel_type,func.sum(Commission.amount)) \
+            .filter(Commission.amount>0) \
+            .group_by(Commission.commission_policy_name,Commission.commission_policy,Commission.channel_type) \
+            .order_by(func.sum(Commission.amount).desc()).limit(25).all()
+        comm_by_policy=[]
+        for r in _raw_policy:
+            nm,cd_val=r[0] or "",r[1] or ""
+            if nm in ("","nan") and cd_val in ("","nan"): continue
+            cls=classify_commission_policy(nm, "", cd_val)
+            comm_by_policy.append({
+                "policy_name": nm if nm not in ("","nan") else cd_val,
+                "policy_code": cd_val,
+                "channel": r[2],
+                "amount": float(r[3] or 0),
+                "display_name": cls["display_name"],
+                "channel_cls": cls["channel_cls"],
+                "policy_type": cls["policy_type"],
+            })
 
         comm_by_channel=[{"name":r[0],"amount":float(r[1] or 0)}
             for r in db.query(Commission.channel_type,func.sum(Commission.amount))
@@ -1640,11 +1661,12 @@ async def get_commission(
             .order_by(func.sum(Commission.amount).desc()).limit(50).all()
         items=[]
         for r in rows:
-            cls=classify_commission_policy(r[0],r[3])
+            cls=classify_commission_policy(r[0],r[3],r[1])
             items.append({"policy_name":r[0],"policy_code":r[1],"channel":r[2],"item":r[3],
                           "agency":r[4],"amount":float(r[5] or 0),
                           "series":cls["series"],"channel_cls":cls["channel_cls"],
-                          "policy_type":cls["policy_type"],"item_type":cls["item_type"]})
+                          "policy_type":cls["policy_type"],"item_type":cls["item_type"],
+                          "display_name":cls["display_name"]})
         total=float(db.query(func.sum(Commission.amount)).filter(Commission.amount>0).scalar() or 0)
         return {"items":items,"total":total}
     finally: db.close()
@@ -1653,24 +1675,43 @@ async def get_commission(
 # ── Commission 실무분류 함수 ─────────────────────────────────────
 import re as _re
 
-def classify_commission_policy(policy_name: str, item_code: str) -> dict:
+def classify_commission_policy(policy_name: str, item_code: str, policy_code: str = "") -> dict:
     """
-    정책명에서 MRA/MWA/MBA 코드 파싱 → 실무 분류
+    정책명/코드에서 채널·유형 분류
     MRA = 소매(Retail Agency)
     MWA = 도매/온라인(Wholesale Agency)
     MBA = 공통기본(Basic common)
     MPA = 판매촉진(Promotion)
     MRN = 지역특별(Regional)
-    코드번호: 00=인프라, 01=기본정책, 02=돈버는모델/매출성장, 03=STORAGE/2ndDevice,
-              04=활력/시장대응, 05=장기고객, 06~=기타
+    한글형식: YYYY-무선-A-NNN (A=소매MRA, B=도매MWA, C=공통MBA, D=특별MPA, E=지역MRN)
+    코드번호: 00/000=인프라, 01/010=기본정책, 02/020=매출성장,
+              03/030=STORAGE, 04/040=활력/시장대응, 05/050=장기고객,
+              06/060=부가서비스, 07/070=Pre-Sales, 08/080=신모델SCM, 09/090=목표달성
     """
     nm = policy_name or ""
-    # 코드 추출
-    m = _re.search(r'(MRA|MWA|MBA|MPA|MRN|MZC)-(\d{2})', nm)
+    cd = policy_code or ""
+
+    # 1) 영문 MRA/MWA/MBA 형식: "2605-MRA-01-004" 또는 "MRA-01"
+    m = _re.search(r'(MRA|MWA|MBA|MPA|MRN|MZC|MRO)-(\d{2})', nm) or \
+        _re.search(r'(MRA|MWA|MBA|MPA|MRN|MZC|MRO)-(\d{2})', cd)
     series = m.group(1) if m else None
     num = int(m.group(2)) if m else None
-    # 채널 분류
-    if series in ("MRA",):
+
+    # 2) 한글 형식: "YYYY-무선-A-NNN" 또는 "YYYY-특수-A-NNN"
+    if series is None:
+        mk = _re.search(r'\d{4}-(?:무선|특수|공통)-([A-Za-z])-(\d{2,3})', nm) or \
+             _re.search(r'\d{4}-(?:무선|특수|공통)-([A-Za-z])-(\d{2,3})', cd)
+        if mk:
+            letter_map = {
+                'A': 'MRA', 'B': 'MWA', 'C': 'MBA', 'D': 'MPA',
+                'E': 'MRN', 'F': 'MZC', 'R': 'MRA', 'W': 'MWA',
+            }
+            series = letter_map.get(mk.group(1).upper(), 'MRA')
+            raw_num = int(mk.group(2))
+            num = raw_num // 10 if raw_num >= 10 else raw_num
+
+    # 3) 채널 분류
+    if series in ("MRA", "MRO"):
         channel_cls = "소매"
     elif series in ("MWA",):
         channel_cls = "도매/온라인"
@@ -1680,35 +1721,28 @@ def classify_commission_policy(policy_name: str, item_code: str) -> dict:
         channel_cls = "특별/촉진"
     else:
         channel_cls = "기타"
-    # 정책 유형 분류
-    if num is None:
-        policy_type = "기타"
-    elif num == 0:
-        policy_type = "인프라(기본수수료)"
-    elif num == 1:
-        policy_type = "기본정책"
-    elif num == 2:
-        policy_type = "매출성장(돈버는모델)"
-    elif num == 3:
-        policy_type = "STORAGE/2nd Device"
-    elif num == 4:
-        policy_type = "활력/시장대응"
-    elif num == 5:
-        policy_type = "장기고객(기변)"
-    elif num == 6:
-        policy_type = "부가서비스활성화"
-    elif num == 7:
-        policy_type = "Pre-Sales/신모델"
-    elif num == 8:
-        policy_type = "신모델 SCM"
-    elif num == 9:
-        policy_type = "목표달성/시상"
-    else:
-        policy_type = f"기타({num:02d})"
-    # 항목유형
-    item_type = {"F300":"활성화","F420":"유지","F432":"부가서비스"}.get(item_code, item_code or "기타")
-    return {"series": series or "기타", "channel_cls": channel_cls,
-            "policy_type": policy_type, "item_type": item_type}
+
+    # 4) 정책 유형 분류
+    _type_map = {
+        0: "인프라(기본수수료)", 1: "기본정책", 2: "매출성장(돈버는모델)",
+        3: "STORAGE/2nd Device", 4: "활력/시장대응", 5: "장기고객(기변)",
+        6: "부가서비스활성화", 7: "Pre-Sales/신모델", 8: "신모델 SCM", 9: "목표달성/시상",
+    }
+    policy_type = _type_map.get(num, f"기타({num:02d})" if num is not None else "기타")
+
+    # 5) 항목유형
+    item_type = {"F300": "활성화", "F420": "유지", "F432": "부가서비스"}.get(item_code, item_code or "기타")
+
+    # 6) 표시용 종류명 (채널+유형 조합)
+    display_name = f"{channel_cls} {policy_type}" if channel_cls != "기타" else policy_type
+
+    return {
+        "series": series or "기타",
+        "channel_cls": channel_cls,
+        "policy_type": policy_type,
+        "item_type": item_type,
+        "display_name": display_name,
+    }
 
 # ── Subscriber Analysis ───────────────────────────────────────────
 @app.get("/api/subscriber")
@@ -1769,12 +1803,132 @@ async def get_subscriber_analysis(
 
 
 # ── Device Hierarchy (4-level drilldown) ─────────────────────────
+import re as _re_dev
+
+def parse_device_hierarchy(model_name: str, model_code: str) -> dict:
+    """
+    단말명/코드에서 5단계 계위 추출
+    LV1: 모델류 (갤럭시S26류, iPhone17류, ...)
+    LV2: 대표모델 (Ultra, Pro, Plus, 일반, FE, Air, Mini)
+    LV3: 용량 (256GB, 512GB, 1TB, ...)
+    LV4: 색상 (블랙, 화이트, ...)
+    LV5: 판매유형 (자급제, 일반)
+    """
+    nm = (model_name or "").strip()
+    cd = (model_code or "").strip().upper()
+
+    # ── LV1: 모델류 ──
+    lv1_map = [
+        ("갤럭시S26류",  [r'갤럭시.?[Ss]26', r'[Ss]26', r'SM-S9[6-9]']),
+        ("갤럭시S25류",  [r'갤럭시.?[Ss]25', r'[Ss]25', r'SM-S93']),
+        ("갤럭시S24류",  [r'갤럭시.?[Ss]24', r'[Ss]24', r'SM-S92']),
+        ("Z Fold류",     [r'Z\s*Fold', r'폴드', r'SM-F9']),
+        ("Z Flip류",     [r'Z\s*Flip', r'플립', r'SM-F7']),
+        ("A시리즈",      [r'갤럭시\s*A\d', r'SM-A']),
+        ("iPhone17류",   [r'아이폰\s*17', r'iPhone\s*17', r'iPhone17']),
+        ("iPhone16류",   [r'아이폰\s*16', r'iPhone\s*16', r'iPhone16']),
+        ("iPhone15류",   [r'아이폰\s*15', r'iPhone\s*15', r'iPhone15']),
+        ("갤럭시 기타",  [r'갤럭시', r'Galaxy', r'SM-']),
+        ("Apple 기타",   [r'iPhone', r'iPad', r'Apple']),
+    ]
+    lv1 = "기타"
+    for label, patterns in lv1_map:
+        if any(_re_dev.search(p, nm, _re_dev.IGNORECASE) or _re_dev.search(p, cd) for p in patterns):
+            lv1 = label; break
+
+    # ── LV2: 대표모델 ──
+    lv2 = "일반"
+    if _re_dev.search(r'울트라|Ultra|ultra', nm, _re_dev.IGNORECASE):
+        lv2 = "Ultra"
+    elif _re_dev.search(r'프로 맥스|Pro Max|ProMax', nm, _re_dev.IGNORECASE):
+        lv2 = "Pro Max"
+    elif _re_dev.search(r'\bPro\b|프로(?!\s*맥스)', nm, _re_dev.IGNORECASE):
+        lv2 = "Pro"
+    elif _re_dev.search(r'플러스|Plus|\+(?:\s|$)', nm, _re_dev.IGNORECASE):
+        lv2 = "Plus"
+    elif _re_dev.search(r'\bFE\b|팬 에디션', nm, _re_dev.IGNORECASE):
+        lv2 = "FE"
+    elif _re_dev.search(r'\bAir\b|에어', nm, _re_dev.IGNORECASE):
+        lv2 = "Air"
+    elif _re_dev.search(r'\bMini\b|미니', nm, _re_dev.IGNORECASE):
+        lv2 = "Mini"
+
+    # ── LV3: 용량 ──
+    # 우선 model_name에서 추출, 없으면 model_code에서
+    lv3 = "용량미상"
+    cap_patterns = [
+        (r'(\d+)\s*TB', lambda m: f"{int(m.group(1))*1024}GB", True),
+        (r'(\d{3,4})\s*[Gg][Bb]', lambda m: f"{m.group(1)}GB", False),
+        (r'(\d{2,3})\s*[Gg](?:[Bb]|이상)?', lambda m: f"{m.group(1)}GB", False),
+    ]
+    for src in [nm, cd]:
+        for pat, fmt_fn, _ in cap_patterns:
+            mc = _re_dev.search(pat, src)
+            if mc:
+                lv3 = fmt_fn(mc); break
+        if lv3 != "용량미상": break
+    # model_code 끝 숫자 패턴: SM-S962NK256BK → 256
+    if lv3 == "용량미상" and cd:
+        cm2 = _re_dev.search(r'(\d{2,4})(?:[A-Z]{1,3})?$', cd)
+        if cm2:
+            v = int(cm2.group(1))
+            if v in (64,128,256,512,1024): lv3 = f"{v}GB"
+
+    # ── LV4: 색상 ──
+    lv4 = "색상미상"
+    color_map = [
+        ("블랙",   [r'블랙|Black|BK$|BK[A-Z]|_BK|BLACK', True]),
+        ("화이트",  [r'화이트|White|WH$|_WH|WHITE', True]),
+        ("실버",   [r'실버|Silver|SL$|_SL|SILVER', True]),
+        ("골드",   [r'골드|Gold|GD$|_GD|GOLD', True]),
+        ("그린",   [r'그린|Green|GR$|_GR|GREEN', True]),
+        ("블루",   [r'블루|Blue|BL$|_BL|BLUE', True]),
+        ("퍼플",   [r'퍼플|Purple|PU$|_PU|PURPLE|VIOLET', True]),
+        ("레드",   [r'레드|Red|RD$|_RD|RED', True]),
+        ("핑크",   [r'핑크|Pink|PK$|_PK|PINK', True]),
+        ("그레이",  [r'그레이|Gray|Grey|GY$|_GY|GRAY', True]),
+        ("옐로우",  [r'옐로|Yellow|YL$|_YL|YELLOW', True]),
+        ("오렌지",  [r'오렌지|Orange|OR$|_OR|ORANGE', True]),
+        ("티타늄",  [r'티타늄|Titan|TI$|_TI|TITAN', True]),
+    ]
+    for label, (pat, _) in color_map:
+        if _re_dev.search(pat, nm, _re_dev.IGNORECASE) or _re_dev.search(pat, cd):
+            lv4 = label; break
+    # model_code 끝 2자리 색상코드: SM-S962NK256BK → BK
+    if lv4 == "색상미상" and cd:
+        cc = _re_dev.search(r'(\d{2,4})([A-Z]{2})$', cd)
+        if cc:
+            code_color = {
+                'BK':'블랙','WH':'화이트','SL':'실버','GD':'골드','GR':'그린',
+                'BL':'블루','PU':'퍼플','RD':'레드','PK':'핑크','GY':'그레이',
+                'YL':'옐로우','OR':'오렌지','TI':'티타늄','VC':'바이올렛','LV':'라벤더',
+            }
+            lv4 = code_color.get(cc.group(2), lv4)
+
+    # ── LV5: 판매유형 ──
+    lv5 = "일반"
+    if _re_dev.search(r'자급제|자급|SIM-FREE|SIMFREE|OPEN', nm, _re_dev.IGNORECASE) or \
+       _re_dev.search(r'자급제|자급', nm):
+        lv5 = "자급제"
+    elif _re_dev.search(r'KT|KTF', cd):
+        lv5 = "KT전용"
+
+    return {"lv1": lv1, "lv2": lv2, "lv3": lv3, "lv4": lv4, "lv5": lv5}
+
+
 @app.get("/api/device/hierarchy")
 async def get_device_hierarchy(
     bonbu_list: List[str] = Query(default=[]),
-    level: str = "l1",
+    level: str = "model",
     parent: str = None,
+    lv1: str = None, lv2: str = None, lv3: str = None, lv4: str = None,
 ):
+    """
+    단말 판매 계위 조회
+    level: model(기존단말명), l1(모델류), l2(대표모델), l3(용량), l4(색상), l5(판매유형)
+    parent: 상위 필터(model_name LIKE 검색)
+    lv1~lv4: 단계별 필터 (파싱 결과 기반)
+    """
     db = SessionLocal()
     try:
         all_months = [r[0] for r in db.query(DeviceSales.yyyymm).distinct()
@@ -1783,33 +1937,69 @@ async def get_device_hierarchy(
         cur_mm = all_months[0] if all_months else ""
         prev_mm = all_months[1] if len(all_months)>1 else ""
         if not cur_mm:
-            return {"items":[],"cur_mm":"","prev_mm":""}
+            return {"items":[],"cur_mm":"","prev_mm":"","level":level}
 
         def af(q):
             if bonbu_list: q = q.filter(DeviceSales.bonbu.in_(bonbu_list))
             return q
 
-        # model_name 구조: 예) SM-S962NK256BK (대표+세부+용량+색상 합쳐진 경우 많음)
-        # L1: 대표단말 (model_code 앞 3~4자 or 별도 분류)
-        # 단순하게: model_name을 그대로 쓰되, level별로 필터
-        def get_sales(mm, name_filter=None):
-            q = af(db.query(DeviceSales.model_name, func.sum(DeviceSales.sale_count)))
-            q = q.filter(DeviceSales.yyyymm==mm, DeviceSales.model_name!="",
-                         DeviceSales.model_name!="nan", DeviceSales.model_name!="ㆍ값없음")
-            if name_filter:
-                q = q.filter(DeviceSales.model_name.like(f"%{name_filter}%"))
-            return {r[0]: int(r[1] or 0) for r in q.group_by(DeviceSales.model_name).all()}
+        def get_all_rows(mm):
+            q = af(db.query(DeviceSales.model_name, DeviceSales.model_code,
+                            func.sum(DeviceSales.sale_count)))
+            q = q.filter(DeviceSales.yyyymm==mm,
+                         DeviceSales.model_name!="", DeviceSales.model_name!="nan",
+                         DeviceSales.model_name!="ㆍ값없음")
+            if parent:
+                q = q.filter(DeviceSales.model_name.like(f"%{parent}%"))
+            return q.group_by(DeviceSales.model_name, DeviceSales.model_code).all()
 
-        cur = get_sales(cur_mm, parent)
-        prev_d = get_sales(prev_mm, parent)
+        cur_rows = get_all_rows(cur_mm)
+        prev_rows = get_all_rows(prev_mm)
+
+        # model 레벨(기존) 또는 hierarchy 레벨
+        if level == "model":
+            cur_map = {r[0]: int(r[2] or 0) for r in cur_rows}
+            prev_map = {r[0]: int(r[2] or 0) for r in prev_rows}
+            items = []
+            for nm, cnt in sorted(cur_map.items(), key=lambda x:-x[1]):
+                pv = prev_map.get(nm, 0)
+                items.append({"name": nm, "cur": cnt, "prev": pv,
+                              "mom": round((cnt-pv)/pv*100,1) if pv>0 else None})
+            return {"items": items[:30], "cur_mm": cur_mm, "prev_mm": prev_mm, "level": level}
+
+        # 계위 레벨 집계
+        level_key = {"l1":"lv1","l2":"lv2","l3":"lv3","l4":"lv4","l5":"lv5"}.get(level,"lv1")
+
+        def aggregate_by_level(rows, filters):
+            agg = {}
+            for nm, cd_val, cnt in rows:
+                h = parse_device_hierarchy(nm, cd_val or "")
+                # 필터 적용
+                if filters.get("lv1") and h["lv1"] != filters["lv1"]: continue
+                if filters.get("lv2") and h["lv2"] != filters["lv2"]: continue
+                if filters.get("lv3") and h["lv3"] != filters["lv3"]: continue
+                if filters.get("lv4") and h["lv4"] != filters["lv4"]: continue
+                key = h[level_key]
+                agg[key] = agg.get(key, 0) + int(cnt or 0)
+            return agg
+
+        filters = {}
+        if lv1: filters["lv1"] = lv1
+        if lv2: filters["lv2"] = lv2
+        if lv3: filters["lv3"] = lv3
+        if lv4: filters["lv4"] = lv4
+
+        cur_agg = aggregate_by_level(cur_rows, filters)
+        prev_agg = aggregate_by_level(prev_rows, filters)
+
         items = []
-        for nm, cnt in sorted(cur.items(), key=lambda x:-x[1]):
-            pv = prev_d.get(nm, 0)
-            items.append({
-                "name": nm, "cur": cnt, "prev": pv,
-                "mom": round((cnt-pv)/pv*100,1) if pv>0 else None
-            })
-        return {"items": items[:30], "cur_mm": cur_mm, "prev_mm": prev_mm}
+        for nm, cnt in sorted(cur_agg.items(), key=lambda x:-x[1]):
+            pv = prev_agg.get(nm, 0)
+            items.append({"name": nm, "cur": cnt, "prev": pv,
+                          "mom": round((cnt-pv)/pv*100,1) if pv>0 else None,
+                          "level": level_key})
+        return {"items": items[:40], "cur_mm": cur_mm, "prev_mm": prev_mm, "level": level,
+                "filters": filters}
     finally:
         db.close()
 
@@ -1922,10 +2112,24 @@ async def get_forecast(yyyymm: str = None):
         bd = db.query(BusinessDay).filter(BusinessDay.yyyymm==yyyymm).first()
         elapsed = bd.elapsed_days if bd and bd.elapsed_days else 0
         total = bd.total_days if bd and bd.total_days else 0
-        cur_sale = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
-        forecast = round(cur_sale / elapsed * total) if elapsed > 0 and total > 0 else cur_sale
-        return {"yyyymm":yyyymm,"elapsed_days":elapsed,"total_days":total,
-                "current_sale":cur_sale,"month_forecast_sale":forecast}
+        annual_elapsed = bd.annual_elapsed_days if bd and bd.annual_elapsed_days else 0
+        annual_total = bd.annual_total_days if bd and bd.annual_total_days else 0
+        # 당월 판매 실적 (해당 yyyymm 필터)
+        cur_sale = int(db.query(func.sum(Sales.sale_count)).filter(Sales.yyyymm==yyyymm).scalar() or 0) if yyyymm else 0
+        if cur_sale == 0:
+            cur_sale = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        # 연간 누계 판매
+        annual_sale = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        month_forecast = round(cur_sale / elapsed * total) if elapsed > 0 and total > 0 else cur_sale
+        annual_forecast = round(annual_sale / annual_elapsed * annual_total) if annual_elapsed > 0 and annual_total > 0 else annual_sale
+        return {
+            "yyyymm": yyyymm,
+            "elapsed_days": elapsed, "total_days": total,
+            "annual_elapsed_days": annual_elapsed, "annual_total_days": annual_total,
+            "current_sale": cur_sale, "annual_sale": annual_sale,
+            "month_forecast_sale": month_forecast,
+            "annual_forecast_sale": annual_forecast,
+        }
     finally:
         db.close()
 
