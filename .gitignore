@@ -5,3 +5,4 @@ __pycache__/
 !app/seed/
 !app/seed/kt_dashboard_seed.db
 app/data/
+.claude/worktrees/stupefied-heisenberg-5ae610/
