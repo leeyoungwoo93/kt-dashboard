@@ -1,4 +1,4 @@
-import os, io
+import os, io, json
 from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +11,7 @@ from app.models.sales import Sales, Commission, DeviceSales, Inventory, Subscrib
 
 MIN_BONBU = 100
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+STORE_ADDRESS_BOOK = os.path.join(DATA_DIR, "store_addresses.json")
 BATCH = 200
 APP_VERSION = "v5-seeded-retail-monthly"
 AUTOLOAD_EXCEL = os.environ.get("AUTOLOAD_EXCEL", "0").lower() in ("1", "true", "yes", "on")
@@ -152,7 +153,229 @@ def _clean_text(v):
         return ""
     if txt.endswith(".0") and txt[:-2].isdigit():
         return txt[:-2]
-    return txt
+    return txt.replace("\u00a0", " ")
+
+
+def _norm_key(v):
+    return _clean_text(v).replace(" ", "").upper()
+
+
+def _maybe_float(v):
+    try:
+        if pd.isna(v):
+            return None
+    except Exception:
+        pass
+    txt = _clean_text(v).replace(",", "")
+    if not txt:
+        return None
+    try:
+        n = float(txt)
+    except Exception:
+        return None
+    return n if n != 0 else None
+
+
+_SIDO_ALIASES = {
+    "서울특별시": "서울", "서울": "서울",
+    "부산광역시": "부산", "부산": "부산",
+    "대구광역시": "대구", "대구": "대구",
+    "인천광역시": "인천", "인천": "인천",
+    "광주광역시": "광주", "광주": "광주",
+    "대전광역시": "대전", "대전": "대전",
+    "울산광역시": "울산", "울산": "울산",
+    "세종특별자치시": "세종", "세종": "세종",
+    "경기도": "경기", "경기": "경기",
+    "강원특별자치도": "강원", "강원도": "강원", "강원": "강원",
+    "충청북도": "충북", "충북": "충북",
+    "충청남도": "충남", "충남": "충남",
+    "전북특별자치도": "전북", "전라북도": "전북", "전북": "전북",
+    "전라남도": "전남", "전남": "전남",
+    "경상북도": "경북", "경북": "경북",
+    "경상남도": "경남", "경남": "경남",
+    "제주특별자치도": "제주", "제주도": "제주", "제주": "제주",
+}
+
+_REGION_COORDS = {
+    "서울": (37.5665, 126.9780), "서울 강남구": (37.5172, 127.0473), "서울 강동구": (37.5301, 127.1238),
+    "서울 강북구": (37.6396, 127.0257), "서울 강서구": (37.5509, 126.8495), "서울 관악구": (37.4784, 126.9516),
+    "서울 광진구": (37.5384, 127.0823), "서울 구로구": (37.4955, 126.8877), "서울 금천구": (37.4569, 126.8955),
+    "서울 노원구": (37.6542, 127.0568), "서울 도봉구": (37.6688, 127.0471), "서울 동대문구": (37.5744, 127.0396),
+    "서울 동작구": (37.5124, 126.9393), "서울 마포구": (37.5663, 126.9019), "서울 서대문구": (37.5791, 126.9368),
+    "서울 서초구": (37.4836, 127.0327), "서울 성동구": (37.5633, 127.0369), "서울 성북구": (37.5894, 127.0167),
+    "서울 송파구": (37.5145, 127.1059), "서울 양천구": (37.5169, 126.8664), "서울 영등포구": (37.5264, 126.8962),
+    "서울 용산구": (37.5326, 126.9905), "서울 은평구": (37.6027, 126.9291), "서울 종로구": (37.5735, 126.9790),
+    "서울 중구": (37.5636, 126.9976), "서울 중랑구": (37.6063, 127.0927),
+    "부산": (35.1796, 129.0756), "대구": (35.8714, 128.6014), "인천": (37.4563, 126.7052),
+    "광주": (35.1595, 126.8526), "대전": (36.3504, 127.3845), "울산": (35.5384, 129.3114), "세종": (36.4801, 127.2890),
+    "경기": (37.4138, 127.5183), "경기 수원시": (37.2636, 127.0286), "경기 성남시": (37.4200, 127.1265),
+    "경기 고양시": (37.6584, 126.8320), "경기 용인시": (37.2411, 127.1776), "경기 부천시": (37.5034, 126.7660),
+    "경기 안산시": (37.3219, 126.8309), "경기 안양시": (37.3943, 126.9568), "경기 남양주시": (37.6360, 127.2165),
+    "경기 화성시": (37.1995, 126.8312), "경기 평택시": (36.9921, 127.1129), "경기 의정부시": (37.7381, 127.0338),
+    "경기 시흥시": (37.3801, 126.8029), "경기 파주시": (37.7599, 126.7802), "경기 김포시": (37.6153, 126.7156),
+    "경기 광명시": (37.4786, 126.8646), "경기 광주시": (37.4294, 127.2550), "경기 군포시": (37.3615, 126.9353),
+    "경기 이천시": (37.2723, 127.4350), "경기 오산시": (37.1498, 127.0772), "경기 하남시": (37.5393, 127.2149),
+    "경기 양주시": (37.7853, 127.0458), "경기 구리시": (37.5943, 127.1296), "경기 안성시": (37.0079, 127.2797),
+    "경기 포천시": (37.8949, 127.2003), "경기 의왕시": (37.3449, 126.9683), "경기 여주시": (37.2983, 127.6371),
+    "경기 동두천시": (37.9036, 127.0606), "경기 과천시": (37.4292, 126.9876),
+    "강원": (37.8228, 128.1555), "강원 춘천시": (37.8813, 127.7298), "강원 원주시": (37.3422, 127.9202),
+    "강원 강릉시": (37.7519, 128.8761), "강원 동해시": (37.5247, 129.1143), "강원 속초시": (38.2070, 128.5918),
+    "충북": (36.8000, 127.7000), "충북 청주시": (36.6424, 127.4890), "충북 충주시": (36.9910, 127.9259),
+    "충북 제천시": (37.1326, 128.1910),
+    "충남": (36.5184, 126.8000), "충남 천안시": (36.8151, 127.1139), "충남 아산시": (36.7898, 127.0025),
+    "충남 서산시": (36.7849, 126.4503), "충남 당진시": (36.8931, 126.6283), "충남 공주시": (36.4466, 127.1190),
+    "전북": (35.7175, 127.1530), "전북 전주시": (35.8242, 127.1480), "전북 군산시": (35.9677, 126.7366),
+    "전북 익산시": (35.9483, 126.9576), "전북 정읍시": (35.5699, 126.8560),
+    "전남": (34.8679, 126.9910), "전남 목포시": (34.8118, 126.3922), "전남 여수시": (34.7604, 127.6622),
+    "전남 순천시": (34.9506, 127.4872), "전남 광양시": (34.9407, 127.6959), "전남 나주시": (35.0158, 126.7109),
+    "경북": (36.4919, 128.8889), "경북 포항시": (36.0190, 129.3435), "경북 경주시": (35.8562, 129.2247),
+    "경북 구미시": (36.1195, 128.3446), "경북 경산시": (35.8251, 128.7415), "경북 안동시": (36.5684, 128.7294),
+    "경남": (35.4606, 128.2132), "경남 창원시": (35.2279, 128.6811), "경남 김해시": (35.2285, 128.8894),
+    "경남 진주시": (35.1800, 128.1076), "경남 양산시": (35.3350, 129.0370), "경남 거제시": (34.8806, 128.6210),
+    "제주": (33.4996, 126.5312), "제주 제주시": (33.4996, 126.5312), "제주 서귀포시": (33.2541, 126.5601),
+}
+
+
+def _region_from_address(address):
+    txt = " ".join(_clean_text(address).split())
+    if not txt:
+        return ""
+    parts = txt.split()
+    sido = _SIDO_ALIASES.get(parts[0], parts[0])
+    if len(parts) > 1:
+        sigungu = parts[1]
+        if sigungu.endswith(("시", "군", "구")):
+            return f"{sido} {sigungu}"
+    return sido
+
+
+def _geo_from_address(address, seed=""):
+    region = _region_from_address(address)
+    base = _REGION_COORDS.get(region) or _REGION_COORDS.get(region.split()[0] if region else "")
+    if not base:
+        return None, None, region
+    h = sum((i + 1) * ord(ch) for i, ch in enumerate(_clean_text(seed) or _clean_text(address)))
+    spread = 0.018 if region in _REGION_COORDS else 0.22
+    lat_j = (((h % 1000) / 1000) - 0.5) * spread
+    lng_j = ((((h // 1000) % 1000) / 1000) - 0.5) * spread
+    return round(base[0] + lat_j, 6), round(base[1] + lng_j, 6), region
+
+
+_store_address_cache = None
+
+
+def _load_store_address_book():
+    global _store_address_cache
+    if _store_address_cache is not None:
+        return _store_address_cache
+    data = {"rows": [], "by_contact": {}, "by_store": {}}
+    if not os.path.exists(STORE_ADDRESS_BOOK):
+        _store_address_cache = data
+        return data
+    try:
+        with open(STORE_ADDRESS_BOOK, "r", encoding="utf-8") as f:
+            rows = json.load(f)
+        if isinstance(rows, dict):
+            rows = rows.get("rows", [])
+        for row in rows:
+            contact = _norm_key(row.get("contact") or row.get("store_code"))
+            store = _norm_key(row.get("store") or row.get("store_name"))
+            if contact:
+                data["by_contact"][contact] = row
+            if store and store not in data["by_store"]:
+                data["by_store"][store] = row
+        data["rows"] = rows
+    except Exception as e:
+        print(f"[store address book load error] {e}")
+    _store_address_cache = data
+    return data
+
+
+def _match_store_address(contact="", store=""):
+    book = _load_store_address_book()
+    return book["by_contact"].get(_norm_key(contact)) or book["by_store"].get(_norm_key(store))
+
+
+def _parse_store_address_book(contents):
+    df = _read_headered_excel(contents, ["접점코드", "접점명", "도로명주소", "지번주소"])
+    c_bonbu = _pick_col(df, ["본부"])
+    c_team = _pick_col(df, ["관리상위조직", "담당", "지사"])
+    c_contact = _pick_col(df, ["접점코드", "판매접점", "매장코드"])
+    c_store = _pick_col(df, ["접점명", "판매점명", "매장명"])
+    c_agency_code = _pick_col(df, ["계약대리점", "대리점코드", "무선유통조직"])
+    c_agency = _pick_col(df, ["계약대리점명", "대리점명", "무선유통조직명"])
+    c_road = _pick_col(df, ["도로명주소", "주소"])
+    c_jibun = _pick_col(df, ["지번주소"])
+    c_lat = _pick_col(df, ["위도", "lat", "latitude"])
+    c_lng = _pick_col(df, ["경도", "lng", "lon", "longitude"])
+    rows = []
+    seen = set()
+    for _, row in df.iterrows():
+        contact = _clean_text(row.get(c_contact, "")) if c_contact else ""
+        store = _clean_text(row.get(c_store, "")) if c_store else ""
+        road = _clean_text(row.get(c_road, "")) if c_road else ""
+        jibun = _clean_text(row.get(c_jibun, "")) if c_jibun else ""
+        address = road or jibun
+        if not any([contact, store, address]):
+            continue
+        key = _norm_key(contact) or _norm_key(store)
+        if key and key in seen:
+            continue
+        seen.add(key)
+        lat = _maybe_float(row.get(c_lat, "")) if c_lat else None
+        lng = _maybe_float(row.get(c_lng, "")) if c_lng else None
+        region = _region_from_address(address)
+        if not (lat and lng) and address:
+            lat, lng, region = _geo_from_address(address, contact or store)
+        rows.append({
+            "bonbu": _clean_text(row.get(c_bonbu, "")) if c_bonbu else "",
+            "team": _clean_text(row.get(c_team, "")) if c_team else "",
+            "contact": contact,
+            "store": store,
+            "agency_code": _clean_text(row.get(c_agency_code, "")) if c_agency_code else "",
+            "agency": _clean_text(row.get(c_agency, "")) if c_agency else "",
+            "road_address": road,
+            "jibun_address": jibun,
+            "address": address,
+            "region": region,
+            "lat": lat,
+            "lng": lng,
+        })
+    return rows
+
+
+def _save_store_address_book(contents):
+    global _store_address_cache
+    rows = _parse_store_address_book(contents)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(STORE_ADDRESS_BOOK, "w", encoding="utf-8") as f:
+        json.dump(rows, f, ensure_ascii=False, indent=2)
+    _store_address_cache = None
+    _load_store_address_book()
+    return rows
+
+
+def _enrich_store_sales_locations(db):
+    changed = 0
+    for obj in db.query(StoreSales).yield_per(1000):
+        entry = _match_store_address(obj.contact, obj.store)
+        address = obj.address or (entry or {}).get("address", "")
+        region = obj.region or (entry or {}).get("region", "")
+        lat = obj.lat or (entry or {}).get("lat")
+        lng = obj.lng or (entry or {}).get("lng")
+        if (not lat or not lng) and address:
+            lat, lng, region2 = _geo_from_address(address, obj.contact or obj.store)
+            region = region or region2
+        before = (obj.address, obj.region, obj.lat, obj.lng)
+        obj.address = obj.address or address
+        obj.region = obj.region or region
+        obj.lat = obj.lat or lat
+        obj.lng = obj.lng or lng
+        if before != (obj.address, obj.region, obj.lat, obj.lng):
+            changed += 1
+    if changed:
+        db.commit()
+    return changed
 
 
 def _norm_month(v):
@@ -727,6 +950,10 @@ def _load_storesales(db, contents):
     c_agency_code = _pick_col(df, ["무선유통조직", "판매조직", "대리점코드", "대표코드"])
     c_store_code = _pick_col(df, ["판매접점", "접점코드", "매장코드"])
     c_channel = _pick_col(df, ["판매채널", "채널", "판매유형", "판매경로"])
+    c_address = _pick_col(df, ["주소", "도로명주소", "지번주소", "매장주소"])
+    c_region = _pick_col(df, ["지역", "시도", "광역시", "시·도", "region"])
+    c_lat = _pick_col(df, ["위도", "lat", "latitude"])
+    c_lng = _pick_col(df, ["경도", "lng", "lon", "longitude"])
     c_sale = _pick_col(df, ["판매량", "총판매", "판매건수", "판매"])
     c_net = _pick_col(df, ["순증"])
     c_new = _pick_col(df, ["신규판매", "신규"])
@@ -755,6 +982,22 @@ def _load_storesales(db, contents):
         store_code = _clean_text(row.get(c_store_code, "")) if c_store_code else ""
         store = _prefer_name(row, c_store_code, c_store_nm)
         channel = _clean_text(row.get(c_channel, "")) if c_channel else ""
+        address = _clean_text(row.get(c_address, "")) if c_address else ""
+        region = _clean_text(row.get(c_region, "")) if c_region else ""
+        lat_val = _maybe_float(row.get(c_lat, "")) if c_lat else None
+        lng_val = _maybe_float(row.get(c_lng, "")) if c_lng else None
+
+        addr_entry = _match_store_address(store_code, store)
+        if addr_entry:
+            address = address or addr_entry.get("address", "")
+            region = region or addr_entry.get("region", "")
+            lat_val = lat_val or addr_entry.get("lat")
+            lng_val = lng_val or addr_entry.get("lng")
+        if not region and address:
+            region = _region_from_address(address)
+        if (not lat_val or not lng_val) and address:
+            lat_val, lng_val, region2 = _geo_from_address(address, store_code or store)
+            region = region or region2
 
         sale = safe_int(row.get(c_sale, 0)) if c_sale else 0
         new_sale = safe_int(row.get(c_new, 0)) if c_new else 0
@@ -796,6 +1039,10 @@ def _load_storesales(db, contents):
             churn=churn,
             revenue=safe_float(row.get(c_rev, 0)) if c_rev else 0.0,
             arpu=safe_float(row.get(c_arpu, 0)) if c_arpu else 0.0,
+            address=address,
+            lat=lat_val,
+            lng=lng_val,
+            region=region,
         ))
 
     # 월이 식별되면 해당 월만 교체. 월이 전혀 없으면 전체 교체.
@@ -1087,6 +1334,13 @@ async def lifespan(app_):
         _repair_sales_sanity(db)
     except Exception as e:
         print(f"[데이터 보정 호출 오류] {e}")
+    try:
+        if os.path.exists(STORE_ADDRESS_BOOK):
+            updated = _enrich_store_sales_locations(db)
+            if updated:
+                print(f"[매장 주소 보강] store_sales {updated}행 업데이트")
+    except Exception as e:
+        print(f"[매장 주소 보강 오류] {e}")
     finally:
         db.close()
     yield
@@ -1185,6 +1439,20 @@ async def upload_storesales(file: UploadFile = File(...)):
         return {"status":"성공","rows":int(db.query(func.count(StoreSales.id)).scalar() or 0)}
     except Exception as e: return {"status":"실패","error":str(e)}
     finally: db.close()
+
+@app.post("/upload/store-addresses")
+async def upload_store_addresses(file: UploadFile = File(...)):
+    contents = await file.read()
+    db = SessionLocal()
+    try:
+        rows = _save_store_address_book(contents)
+        updated = _enrich_store_sales_locations(db)
+        return {"status":"성공","rows":len(rows),"updated_store_sales":updated}
+    except Exception as e:
+        db.rollback()
+        return {"status":"실패","error":str(e)}
+    finally:
+        db.close()
 
 @app.post("/upload/subsidy")
 async def upload_subsidy(file: UploadFile = File(...)):
@@ -2086,6 +2354,104 @@ async def get_store_sales(
         channels = [{"name":r[0],"value":int(r[1] or 0)} for r in channel_rows]
 
         return {"view":view,"items":items,"totals":totals,"months":months,"trend":trend,"channels":channels}
+    finally:
+        db.close()
+
+@app.get("/api/store-sales/map")
+async def get_store_sales_map(
+    bonbu_list: List[str] = Query(default=[]),
+    team_list: List[str] = Query(default=[]),
+    yyyymm_list: List[str] = Query(default=[]),
+    agency: str = None,
+    channel_list: List[str] = Query(default=[]),
+    limit: int = 3000,
+):
+    db = SessionLocal()
+    try:
+        q = db.query(
+            StoreSales.contact, StoreSales.store, StoreSales.agency, StoreSales.agency_code,
+            StoreSales.bonbu, StoreSales.team, StoreSales.channel,
+            StoreSales.address, StoreSales.region,
+            func.avg(StoreSales.lat), func.avg(StoreSales.lng),
+            func.sum(StoreSales.sale), func.sum(StoreSales.new_sale),
+            func.sum(StoreSales.new010), func.sum(StoreSales.mnp),
+            func.sum(StoreSales.premium), func.sum(StoreSales.churn),
+            func.sum(StoreSales.revenue),
+        )
+        if bonbu_list: q = q.filter(StoreSales.bonbu.in_(bonbu_list))
+        if team_list: q = q.filter(StoreSales.team.in_(team_list))
+        if yyyymm_list: q = q.filter(StoreSales.ref_month.in_(yyyymm_list))
+        if agency: q = q.filter(StoreSales.agency==agency)
+        if channel_list: q = q.filter(StoreSales.channel.in_(channel_list))
+        rows = q.filter(StoreSales.store!="", StoreSales.store!="nan").group_by(
+            StoreSales.contact, StoreSales.store, StoreSales.agency, StoreSales.agency_code,
+            StoreSales.bonbu, StoreSales.team, StoreSales.channel,
+            StoreSales.address, StoreSales.region,
+        ).order_by(func.sum(StoreSales.sale).desc()).limit(limit).all()
+
+        markers = []
+        region_agg = {}
+        unlocated = 0
+        for r in rows:
+            contact, store, ag, ag_cd, bonbu, team, channel, address, region = r[:9]
+            lat, lng = r[9], r[10]
+            sale = int(r[11] or 0)
+            new_sale = int(r[12] or 0)
+            new010 = int(r[13] or 0)
+            mnp = int(r[14] or 0)
+            premium = int(r[15] or 0)
+            churn = int(r[16] or 0)
+            revenue = float(r[17] or 0)
+
+            entry = _match_store_address(contact, store)
+            if entry:
+                address = address or entry.get("address", "")
+                region = region or entry.get("region", "")
+                lat = lat or entry.get("lat")
+                lng = lng or entry.get("lng")
+            if not region and address:
+                region = _region_from_address(address)
+            if (not lat or not lng) and address:
+                lat, lng, region2 = _geo_from_address(address, contact or store)
+                region = region or region2
+
+            region_key = region or "미확인"
+            if region_key not in region_agg:
+                region_agg[region_key] = {
+                    "region": region_key, "store_count": 0, "sale": 0, "new_sale": 0,
+                    "new010": 0, "mnp": 0, "premium": 0, "churn": 0, "revenue": 0.0,
+                }
+            rg = region_agg[region_key]
+            rg["store_count"] += 1
+            rg["sale"] += sale
+            rg["new_sale"] += new_sale
+            rg["new010"] += new010
+            rg["mnp"] += mnp
+            rg["premium"] += premium
+            rg["churn"] += churn
+            rg["revenue"] += revenue
+
+            if lat and lng:
+                markers.append({
+                    "contact": contact, "store": store, "agency": ag, "agency_code": ag_cd,
+                    "bonbu": bonbu, "team": team, "channel": channel,
+                    "address": address, "region": region_key,
+                    "lat": float(lat), "lng": float(lng),
+                    "sale": sale, "new_sale": new_sale, "new010": new010,
+                    "mnp": mnp, "premium": premium, "churn": churn,
+                    "net": new_sale - churn, "revenue": revenue,
+                })
+            else:
+                unlocated += 1
+
+        regions = sorted(region_agg.values(), key=lambda x: x["sale"], reverse=True)
+        return {
+            "markers": markers,
+            "regions": regions,
+            "located_count": len(markers),
+            "unlocated_count": unlocated,
+            "address_book_rows": len(_load_store_address_book().get("rows", [])),
+        }
     finally:
         db.close()
 

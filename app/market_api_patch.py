@@ -1,6 +1,7 @@
 ﻿from fastapi import APIRouter
 from pathlib import Path
 import os
+import re
 import sqlite3
 import traceback
 
@@ -108,6 +109,64 @@ def detect_carrier(text):
     if "LGU" in t or "LGU+" in t or "엘지" in t or "유플" in t:
         return "LGU"
     return ""
+
+
+def classify_market_event(text, event_type=""):
+    raw = str(text or "")
+    t = raw.lower()
+    et = str(event_type or "")
+    joined = f"{et} {raw}".lower()
+
+    rules = [
+        ("공시지원금", ["공시", "공시지원", "지원금 상향", "지원금 하향"]),
+        ("선택약정", ["선약", "선택약정", "요금할인"]),
+        ("추가지원금", ["추지", "추가 지원", "추가지원", "추가보조", "추보"]),
+        ("수수료변경", ["수수료", "리베이트", "rebate", "장려금", "정책금"]),
+        ("가격인상", ["가격 인상", "출고가 인상", "상향", "인상"]),
+        ("가격인하", ["가격 인하", "출고가 인하", "하향", "인하"]),
+        ("신제품출시", ["출시", "사전예약", "런칭", "신모델", "신제품"]),
+        ("판매중단", ["판매중단", "판매 중단", "단종", "종료", "마감"]),
+        ("정책변경", ["정책", "변경", "개편", "조건", "적용"]),
+    ]
+    cls = "기타"
+    for name, keys in rules:
+        if any(k.lower() in joined for k in keys):
+            cls = name
+            break
+
+    devices = [
+        ("갤럭시S26류", [r"갤럭시\s*s?26", r"\bs26\b"]),
+        ("갤럭시S25류", [r"갤럭시\s*s?25", r"\bs25\b"]),
+        ("갤럭시S24류", [r"갤럭시\s*s?24", r"\bs24\b"]),
+        ("Z Fold류", [r"z\s*fold", r"폴드"]),
+        ("Z Flip류", [r"z\s*flip", r"플립"]),
+        ("iPhone17류", [r"iphone\s*17", r"아이폰\s*17"]),
+        ("iPhone16류", [r"iphone\s*16", r"아이폰\s*16"]),
+        ("iPhone15류", [r"iphone\s*15", r"아이폰\s*15"]),
+        ("A시리즈", [r"갤럭시\s*a\d+", r"\ba\d{2}\b"]),
+    ]
+    device_group = ""
+    for name, patterns in devices:
+        if any(re.search(p, joined, re.I) for p in patterns):
+            device_group = name
+            break
+
+    amount = None
+    amount_match = re.search(r"([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(만원|만|원)", raw)
+    if amount_match:
+        n = float(amount_match.group(1).replace(",", ""))
+        amount = int(n * 10000) if amount_match.group(2) in ("만원", "만") else int(n)
+
+    high_keys = ["긴급", "즉시", "금일", "오늘", "당일", "마감", "중단"]
+    med_keys = ["내일", "익일", "이번주", "변경", "인상", "인하", "상향", "하향"]
+    urgency = "HIGH" if any(k in raw for k in high_keys) else "MEDIUM" if any(k in raw for k in med_keys) else "NORMAL"
+
+    return {
+        "event_cls": cls,
+        "device_group": device_group,
+        "amount": amount,
+        "urgency": urgency,
+    }
 
 
 def safe_error(e):
@@ -297,17 +356,29 @@ def timeline(limit: int = 120):
                         ] if x
                     ])
 
+                cls = classify_market_event(summary or raw, event_type)
+                model_group = pick(d, ["model_group", "model_name", "model"], "") or cls["device_group"]
+                delta_krw = safe_int(pick(d, ["delta_krw", "current_delta_krw", "amount"], None))
+                if delta_krw is None:
+                    delta_krw = cls["amount"]
+                ts = pick(d, ["source_time", "event_time", "created_at"])
+
                 items.append({
                     "id": pick(d, ["id", "event_id"]),
                     "event_id": pick(d, ["id", "event_id"]),
-                    "source_time": pick(d, ["source_time", "event_time", "created_at"]),
-                    "event_time": pick(d, ["source_time", "event_time", "created_at"]),
+                    "time": ts,
+                    "source_time": ts,
+                    "event_time": ts,
                     "event_type": event_type,
                     "type": event_type,
+                    "event_cls": cls["event_cls"],
+                    "urgency": cls["urgency"],
                     "carrier": carrier,
-                    "model_group": pick(d, ["model_group", "model_name", "model"], ""),
+                    "model_group": model_group,
+                    "device_group": model_group,
                     "sales_type": pick(d, ["sales_type"], ""),
-                    "delta_krw": safe_int(pick(d, ["delta_krw", "current_delta_krw", "amount"], None)),
+                    "delta_krw": delta_krw,
+                    "amount": delta_krw,
                     "summary": summary,
                     "raw_text": raw,
                 })

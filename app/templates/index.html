@@ -6,6 +6,10 @@
 <title>KT 무선판매 전략 대시보드</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--t1:#006464;--t2:#008080;--t3:#009999;--t4:#00b3b3;--t5:#33d6d6;--t6:#66e0e0;
@@ -166,6 +170,11 @@ tr:hover td{background:#f0f8f8}
 .dev-drill-btn{background:#fff3e0;border:1px solid #ffc94d;border-radius:4px;padding:2px 7px;font-size:9px;color:#e67700;cursor:pointer;font-weight:700}
 .dev-drill-btn.active{background:#e67700;color:#fff;border-color:#e67700}
 .ver-badge{display:inline-block;margin-top:3px;padding:2px 6px;border-radius:999px;background:#f0f8f8;color:var(--t1);font-size:9px;font-weight:800}
+.store-map-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,.85fr);gap:8px}
+#storeMap{height:430px;min-height:360px;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#eef5f5}
+.store-map-popup{font-size:11px;line-height:1.55}
+.store-map-popup b{color:var(--t1)}
+@media(max-width:900px){.store-map-grid{grid-template-columns:1fr}#storeMap{height:360px}}
 </style>
 </head>
 <body>
@@ -179,6 +188,7 @@ tr:hover td{background:#f0f8f8}
     <input type="file" id="fSub" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fSub').click()">👥 가입자</button>
     <input type="file" id="fComm" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fComm').click()">💰 수수료</button>
     <input type="file" id="fStoreSales" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fStoreSales').click()">🏪 소매</button>
+    <input type="file" id="fStoreAddress" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fStoreAddress').click()">📍 매장주소</button>
     <input type="file" id="fKtoa" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fKtoa').click()">📡 KTOA</button>
   </div>
 </div>
@@ -961,6 +971,9 @@ tr:hover td{background:#f0f8f8}
     <button class="dev-lv-btn" id="storeView_team" onclick="setStoreView('team')">담당·지사</button>
     <button class="dev-lv-btn" id="storeView_bonbu" onclick="setStoreView('bonbu')">본부</button>
     <button class="dev-lv-btn" id="storeView_channel" onclick="setStoreView('channel')">채널</button>
+    <span style="font-size:10px;color:var(--muted);margin-left:10px;margin-right:4px">표시:</span>
+    <button class="dev-lv-btn active" id="storeDisp_table" onclick="setStoreDisplay('table')">테이블</button>
+    <button class="dev-lv-btn" id="storeDisp_map" onclick="setStoreDisplay('map')">지도</button>
     <span id="storeStatus" style="font-size:10px;color:var(--muted);margin-left:8px"></span>
   </div>
 
@@ -986,7 +999,23 @@ tr:hover td{background:#f0f8f8}
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="storeMapView" style="display:none;margin-bottom:10px">
+    <div class="ch">
+      <div class="ct">소매 매장 지도</div>
+      <div class="cs" id="storeMapStatus">주소록/좌표 데이터 기준</div>
+    </div>
+    <div class="store-map-grid">
+      <div id="storeMap"></div>
+      <div class="tw" style="max-height:430px">
+        <table>
+          <thead><tr><th>지역</th><th class="num">매장</th><th class="num">판매</th><th class="num">신규</th><th class="num">순증</th></tr></thead>
+          <tbody id="storeRegionTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="storeTableView">
     <div class="ch"><div class="ct" id="storeTableTitle">소매 매장실적 상세</div><div class="cs">기준월·본부·담당·채널 필터 연동</div></div>
     <div class="tw"><table>
       <thead><tr>
@@ -1013,7 +1042,7 @@ let _commView='ai';
 let _ktoaFilter='MNO';
 let _mktReg='수도권', _mktType='공통', _mktSub='MNP', _mktTab=0;
 let _mktPolicies=[];
-let _storeData=null, _storeView='store';
+let _storeData=null, _storeView='store', _storeDisplay='table', _storeMap=null, _storeMapLayer=null, _storeMapData=null;
 try{_mktPolicies=JSON.parse(localStorage.getItem('kt_mkt_policies')||'[]');}catch(e){}
 let _goals={};
 try{_goals=JSON.parse(localStorage.getItem('kt_goals')||'{}');}catch(e){}
@@ -3543,7 +3572,7 @@ async function uploadExcel(inputId,url,label){
     const res=await fetch(url,{method:'POST',body:fd});
     const js=await res.json().catch(()=>({status:'실패',error:'응답 파싱 실패'}));
     if(!res.ok||js.status==='실패')throw new Error(js.error||('HTTP '+res.status));
-    if(st)st.textContent=`${label} 업로드 완료${js.rows!==undefined?` (${fmt(js.rows)}행)`:''}`;
+    if(st)st.textContent=`${label} 업로드 완료${js.rows!==undefined?` (${fmt(js.rows)}행)`:''}${js.updated_store_sales!==undefined?` · 보강 ${fmt(js.updated_store_sales)}행`:''}`;
     await refreshFiltersKeepSelection();
     await loadData();
     renderTab(currentTab);
@@ -3570,6 +3599,33 @@ function setStoreView(v){
   });
   renderTab11();
 }
+function setStoreDisplay(v){
+  _storeDisplay=v;
+  applyStoreDisplay();
+  if(v==='map')renderStoreMap();
+}
+function applyStoreDisplay(){
+  ['table','map'].forEach(k=>{
+    const b=document.getElementById('storeDisp_'+k);
+    if(b)b.classList.toggle('active',k===_storeDisplay);
+  });
+  const table=document.getElementById('storeTableView');
+  const map=document.getElementById('storeMapView');
+  if(table)table.style.display=_storeDisplay==='table'?'block':'none';
+  if(map)map.style.display=_storeDisplay==='map'?'block':'none';
+  if(_storeMap&&_storeDisplay==='map')setTimeout(()=>_storeMap.invalidateSize(),80);
+}
+function storeQueryParams(extra={}){
+  const p=new URLSearchParams();
+  if(extra.view!==false)p.append('view',_storeView);
+  p.append('limit',extra.limit||'80');
+  selBonbu.forEach(b=>p.append('bonbu_list',b));
+  selTeam.forEach(t=>p.append('team_list',t));
+  selCh.forEach(c=>p.append('channel_list',c));
+  selMonth.forEach(m=>p.append('yyyymm_list',m));
+  if(curAgency)p.append('agency',curAgency);
+  return p;
+}
 function storeViewLabel(){return {store:'매장',agency:'대리점',team:'담당·지사',bonbu:'본부',channel:'채널'}[_storeView]||'매장';}
 function fmtStoreMonth(mm){return mm&&mm.length>=6?mm.slice(2,4)+'-'+mm.slice(4,6):mm;}
 
@@ -3577,14 +3633,7 @@ async function renderTab11(){
   const tbody=document.getElementById('storeTbody');
   if(!tbody)return;
   tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:20px;color:var(--muted)">소매 매장실적 로딩 중...</td></tr>';
-  const p=new URLSearchParams();
-  p.append('view',_storeView);
-  p.append('limit','80');
-  selBonbu.forEach(b=>p.append('bonbu_list',b));
-  selTeam.forEach(t=>p.append('team_list',t));
-  selCh.forEach(c=>p.append('channel_list',c));
-  selMonth.forEach(m=>p.append('yyyymm_list',m));
-  if(curAgency)p.append('agency',curAgency);
+  const p=storeQueryParams({limit:'80'});
   try{
     const res=await fetch('/api/store-sales?'+p);
     if(!res.ok)throw new Error('API '+res.status);
@@ -3606,11 +3655,16 @@ async function renderTab11(){
     ]);
     ['storeTrendChart','storeChannelChart','storeTopChart','storeMixChart'].forEach(dc);
     tbody.innerHTML='<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">🏪 소매 매장실적 파일을 업로드하면 매장별 실적이 표시됩니다.</td></tr>';
+    const rt=document.getElementById('storeRegionTbody');
+    if(rt)rt.innerHTML='<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--muted)">지역 데이터 없음</td></tr>';
+    applyStoreDisplay();
     return;
   }
   renderStoreKPI();
   renderStoreCharts();
   renderStoreTable();
+  applyStoreDisplay();
+  if(_storeDisplay==='map')renderStoreMap();
 }
 
 function renderStoreKPI(){
@@ -3677,6 +3731,75 @@ function renderStoreTable(){
     </tr>`).join('');
 }
 
+function storeEsc(v){
+  return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+}
+async function renderStoreMap(){
+  const mapEl=document.getElementById('storeMap');
+  const status=document.getElementById('storeMapStatus');
+  const regionBody=document.getElementById('storeRegionTbody');
+  if(!mapEl)return;
+  if(!window.L){
+    mapEl.innerHTML='<div style="padding:20px;color:var(--muted)">Leaflet 라이브러리를 불러오지 못했습니다.</div>';
+    return;
+  }
+  if(status)status.textContent='지도 데이터 로딩 중...';
+  const p=storeQueryParams({view:false,limit:'3000'});
+  let data;
+  try{
+    const res=await fetch('/api/store-sales/map?'+p,{cache:'no-store'});
+    if(!res.ok)throw new Error('API '+res.status);
+    data=await res.json();
+    _storeMapData=data;
+  }catch(e){
+    if(status)status.textContent='지도 데이터 로드 실패';
+    if(regionBody)regionBody.innerHTML=`<tr><td colspan="5" style="text-align:center;padding:16px;color:${RED}">지도 데이터 로드 실패: ${storeEsc(e.message)}</td></tr>`;
+    return;
+  }
+
+  const markers=data.markers||[];
+  const regions=data.regions||[];
+  if(status)status.textContent=`표시 ${fmt(data.located_count||markers.length)}개 · 좌표 없음 ${fmt(data.unlocated_count||0)}개 · 주소록 ${fmt(data.address_book_rows||0)}행`;
+  if(regionBody){
+    regionBody.innerHTML=regions.slice(0,80).map(r=>`<tr>
+      <td style="font-weight:700">${storeEsc(r.region||'-')}</td>
+      <td class="num">${fmt(r.store_count||0)}</td>
+      <td class="num" style="font-weight:800;color:${T1}">${fmt(r.sale||0)}</td>
+      <td class="num">${fmt(r.new_sale||0)}</td>
+      <td class="num" style="color:${(r.new_sale-r.churn)>=0?GRN:RED};font-weight:700">${fmt((r.new_sale||0)-(r.churn||0))}</td>
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--muted)">지역 데이터 없음</td></tr>';
+  }
+  if(!_storeMap){
+    _storeMap=L.map('storeMap',{preferCanvas:true}).setView([36.4,127.9],7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:18,
+      attribution:'&copy; OpenStreetMap'
+    }).addTo(_storeMap);
+  }
+  if(_storeMapLayer)_storeMap.removeLayer(_storeMapLayer);
+  _storeMapLayer=window.L.markerClusterGroup?L.markerClusterGroup({showCoverageOnHover:false,maxClusterRadius:45}):L.layerGroup();
+  const bounds=[];
+  markers.forEach(m=>{
+    const sale=Number(m.sale||0);
+    const radius=Math.max(5,Math.min(18,5+Math.sqrt(sale)/3));
+    const color=(m.net||0)>=0?T1:RED;
+    const marker=L.circleMarker([m.lat,m.lng],{
+      radius, color, weight:1, fillColor:color, fillOpacity:.68
+    }).bindPopup(`<div class="store-map-popup">
+      <b>${storeEsc(m.store||'-')}</b><br>
+      ${storeEsc(m.address||m.region||'')}<br>
+      판매 <b>${fmt(m.sale||0)}</b> · 신규 ${fmt(m.new_sale||0)} · MNP ${fmt(m.mnp||0)}<br>
+      해지 ${fmt(m.churn||0)} · 순증 <b style="color:${(m.net||0)>=0?GRN:RED}">${fmt(m.net||0)}</b><br>
+      <span style="color:var(--muted)">${storeEsc(m.bonbu||'')} ${storeEsc(m.team||'')} ${storeEsc(m.channel||'')}</span>
+    </div>`);
+    _storeMapLayer.addLayer(marker);
+    bounds.push([m.lat,m.lng]);
+  });
+  _storeMap.addLayer(_storeMapLayer);
+  setTimeout(()=>_storeMap.invalidateSize(),80);
+  if(bounds.length)_storeMap.fitBounds(bounds,{padding:[18,18],maxZoom:12});
+}
+
 /* GPT enhancement patch removed: reverted to stable baseline. */
 
 async function init(){
@@ -3691,6 +3814,7 @@ async function init(){
   bindUpload('fSub','/upload/subscriber','가입자');
   bindUpload('fComm','/upload/commission','수수료');
   bindUpload('fStoreSales','/upload/storesales','소매 매장실적');
+  bindUpload('fStoreAddress','/upload/store-addresses','매장 주소록');
   bindUpload('fKtoa','/upload/ktoa','KTOA');
 
   let f;
@@ -3742,6 +3866,12 @@ init();
     var n = Number(v);
     if (Number.isNaN(n)) return "-";
     return Math.round(n / 10000).toLocaleString() + "만";
+  }
+  function mbadge(text, tone){
+    if (!text) return "-";
+    var bg = tone === "high" ? "#fff0f0" : tone === "medium" ? "#fff8e6" : "#e6f5f5";
+    var fg = tone === "high" ? "#c0001a" : tone === "medium" ? "#e67700" : "#006464";
+    return `<span style="display:inline-block;border-radius:999px;padding:2px 7px;background:${bg};color:${fg};font-weight:800;font-size:10px;white-space:nowrap">${fmt(text)}</span>`;
   }
 
   function table(headers, rows){
@@ -3863,12 +3993,14 @@ init();
 
           <h3>정책 타임라인</h3>
           ${table(
-            ["시간","유형","사업자","요약"],
+            ["시간","분류","긴급","사업자","단말/금액","요약"],
             timelineItems.slice(0,120).map(r=>`
               <tr>
                 <td style="border:1px solid #ddd;padding:5px;white-space:nowrap">${fmt((r.time || "").slice(0,16))}</td>
-                <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.event_type)}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${mbadge(r.event_cls || r.event_type, "normal")}</td>
+                <td style="border:1px solid #ddd;padding:5px;text-align:center">${mbadge(r.urgency, r.urgency==="HIGH"?"high":r.urgency==="MEDIUM"?"medium":"normal")}</td>
                 <td style="border:1px solid #ddd;padding:5px;text-align:center">${fmt(r.carrier)}</td>
+                <td style="border:1px solid #ddd;padding:5px">${fmt(r.device_group || r.model_group)} ${r.amount || r.delta_krw ? " / " + money(r.amount || r.delta_krw) : ""}</td>
                 <td style="border:1px solid #ddd;padding:5px">${fmt(r.summary)}</td>
               </tr>
             `)
@@ -3933,6 +4065,12 @@ init();
       <div style="font-size:24px;line-height:1.35;font-weight:900;color:var(--t1,#005b5b)">${value}</div>
       <div style="font-size:10px;color:var(--muted,#777)">${sub || ""}</div>
     </div>`;
+  }
+  function badge(text, tone){
+    if (!text) return "-";
+    const bg = tone === "high" ? "#fff0f0" : tone === "medium" ? "#fff8e6" : "#e6f5f5";
+    const fg = tone === "high" ? "#c0001a" : tone === "medium" ? "#e67700" : "#006464";
+    return `<span style="display:inline-block;border-radius:999px;padding:2px 7px;background:${bg};color:${fg};font-weight:900;font-size:10px;white-space:nowrap">${esc(text)}</span>`;
   }
   function table(headers, rows, emptyText){
     return `<div style="overflow:auto;max-height:360px;border:1px solid var(--border,#ddd);border-radius:10px;background:#fff">
@@ -4022,8 +4160,10 @@ init();
 
       const timelineRows = timelineItems.slice(0,120).map(r => `<tr>
         <td style="border-bottom:1px solid #eee;padding:6px;white-space:nowrap">${time16(r.time || r.source_time)}</td>
-        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${esc(r.event_type)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${badge(r.event_cls || r.event_type, "normal")}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px;text-align:center">${badge(r.urgency, r.urgency==="HIGH"?"high":r.urgency==="MEDIUM"?"medium":"normal")}</td>
         <td style="border-bottom:1px solid #eee;padding:6px;text-align:center;font-weight:700">${esc(r.carrier)}</td>
+        <td style="border-bottom:1px solid #eee;padding:6px">${esc(r.device_group || r.model_group)} ${r.amount || r.delta_krw ? " / " + money(r.amount || r.delta_krw) : ""}</td>
         <td style="border-bottom:1px solid #eee;padding:6px">${esc(r.summary)}</td>
       </tr>`);
 
@@ -4047,7 +4187,7 @@ init();
         ${section("모델별 단가 리포트", "최근 160건", table(["일시","사업자","대리점","모델","010","MNP","기변","원문"], reportRows))}
         ${section("리베이트 현황", "현재 정책 상태 최근 180건", table(["사업자","모델","유형","약정","요금구간","변동금액","갱신"], rebateRows))}
         ${section("경쟁 격차 분석", "양수는 경쟁사 우위, 음수는 KT 우위로 해석", table(["모델","KT","SKT","LGU+","SKT-KT","LGU-KT","갱신"], compRows))}
-        ${section("정책 타임라인", "최근 120건", table(["시간","유형","사업자","요약"], timelineRows))}
+        ${section("정책 타임라인", "최근 120건", table(["시간","분류","긴급","사업자","단말/금액","요약"], timelineRows))}
       </div>`;
       return true;
     } catch (e) {
@@ -4074,4 +4214,3 @@ init();
 
 </body>
 </html>
-

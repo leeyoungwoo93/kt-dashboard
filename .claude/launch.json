@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "KT Dashboard FastAPI",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": [
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
+    }
+  ]
+}
