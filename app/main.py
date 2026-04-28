@@ -2125,3 +2125,5 @@ try:
 except Exception as exc:
     print(f"market2 router load skipped: {exc}")
 
+from app.ktoa_analysis_patch import router as ktoa2_router
+app.include_router(ktoa2_router)
