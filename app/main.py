@@ -87,10 +87,10 @@ class BusinessDay(Base):
     __tablename__ = "business_day"
     id = Column(Integer, primary_key=True, index=True)
     yyyymm = Column(String, index=True, default="")
-    elapsed_days = Column(Integer, default=0)
-    total_days = Column(Integer, default=0)
-    annual_elapsed_days = Column(Integer, default=0)
-    annual_total_days = Column(Integer, default=0)
+    elapsed_days = Column(Float, default=0.0)
+    total_days = Column(Float, default=0.0)
+    annual_elapsed_days = Column(Float, default=0.0)
+    annual_total_days = Column(Float, default=0.0)
 
 
 def _row_val(row, idx, default=0):
@@ -270,6 +270,21 @@ def _load_store_address_book():
         return _store_address_cache
     data = {"rows": [], "by_contact": {}, "by_store": {}}
     if not os.path.exists(STORE_ADDRESS_BOOK):
+        for fname in ("storeadress.xlsx", "storeaddress.xlsx", "store_addresses.xlsx", "store_address.xlsx"):
+            fpath = os.path.join(DATA_DIR, fname)
+            if not os.path.exists(fpath):
+                continue
+            try:
+                with open(fpath, "rb") as f:
+                    rows = _parse_store_address_book(f.read())
+                os.makedirs(DATA_DIR, exist_ok=True)
+                with open(STORE_ADDRESS_BOOK, "w", encoding="utf-8") as out:
+                    json.dump(rows, out, ensure_ascii=False, indent=2)
+                print(f"[store address book] seeded {len(rows)} rows from {fname}")
+                break
+            except Exception as e:
+                print(f"[store address book seed error] {fname}: {e}")
+    if not os.path.exists(STORE_ADDRESS_BOOK):
         _store_address_cache = data
         return data
     try:
@@ -277,6 +292,16 @@ def _load_store_address_book():
             rows = json.load(f)
         if isinstance(rows, dict):
             rows = rows.get("rows", [])
+        if not rows:
+            for fname in ("storeadress.xlsx", "storeaddress.xlsx", "store_addresses.xlsx", "store_address.xlsx"):
+                fpath = os.path.join(DATA_DIR, fname)
+                if os.path.exists(fpath):
+                    with open(fpath, "rb") as f:
+                        rows = _parse_store_address_book(f.read())
+                    with open(STORE_ADDRESS_BOOK, "w", encoding="utf-8") as out:
+                        json.dump(rows, out, ensure_ascii=False, indent=2)
+                    print(f"[store address book] refreshed {len(rows)} rows from {fname}")
+                    break
         for row in rows:
             contact = _norm_key(row.get("contact") or row.get("store_code"))
             store = _norm_key(row.get("store") or row.get("store_name"))
@@ -1119,6 +1144,53 @@ def _load_targets(db, contents):
 def _load_business_days(db, contents):
     df = _read_headered_excel(contents, ["년월", "영업일", "경과", "전체"])
     db.query(BusinessDay).delete(); db.commit()
+    c_date = _pick_col(df, ["일자", "일", "날짜", "date"])
+    c_daily = _pick_col(df, ["일별영업일", "일영업", "영업일"])
+    c_month_cum = _pick_col(df, ["월누적", "월 누적", "월간누적"])
+    c_annual_cum = _pick_col(df, ["연간누적", "연 누적", "연누적"])
+    if c_date and c_month_cum and c_annual_cum:
+        today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
+        rows = []
+        for _, row in df.iterrows():
+            dt = pd.to_datetime(row.get(c_date), errors="coerce")
+            if pd.isna(dt):
+                continue
+            rows.append({
+                "date": dt.normalize(),
+                "yyyymm": dt.strftime("%Y%m"),
+                "month_cum": safe_float(row.get(c_month_cum, 0)),
+                "annual_cum": safe_float(row.get(c_annual_cum, 0)),
+                "daily": safe_float(row.get(c_daily, 0)) if c_daily else 0.0,
+            })
+        if rows:
+            cal = pd.DataFrame(rows)
+            annual_total_by_year = cal.groupby(cal["yyyymm"].str[:4])["annual_cum"].max().to_dict()
+            buf = []
+            for mm, grp in cal.groupby("yyyymm"):
+                grp = grp.sort_values("date")
+                total = float(grp["month_cum"].max() or 0)
+                year = mm[:4]
+                month_end = grp["date"].max()
+                if today.strftime("%Y%m") == mm:
+                    cutoff = today
+                elif today > month_end:
+                    cutoff = month_end
+                else:
+                    cutoff = grp["date"].min() - pd.Timedelta(days=1)
+                elapsed_rows = grp[grp["date"] <= cutoff]
+                elapsed = float(elapsed_rows["month_cum"].max() or 0) if not elapsed_rows.empty else 0.0
+                year_rows = cal[(cal["yyyymm"].str[:4] == year) & (cal["date"] <= cutoff)]
+                annual_elapsed = float(year_rows["annual_cum"].max() or 0) if not year_rows.empty else 0.0
+                annual_total = float(annual_total_by_year.get(year, 0) or 0)
+                buf.append(BusinessDay(
+                    yyyymm=mm,
+                    elapsed_days=elapsed,
+                    total_days=total,
+                    annual_elapsed_days=annual_elapsed,
+                    annual_total_days=annual_total,
+                ))
+            db.bulk_save_objects(buf); db.commit()
+            return
     c_mm = _pick_col(df, ["년월", "월"])
     c_elapsed = _pick_col(df, ["경과", "현재", "실적영업일"])
     c_total = _pick_col(df, ["총영업일", "전체", "마감", "영업일수"])
@@ -1126,14 +1198,14 @@ def _load_business_days(db, contents):
     c_at = _pick_col(df, ["연간총", "연총", "연간영업"])
     buf=[]
     for _, row in df.iterrows():
-        mm=str(row.get(c_mm, "")).strip()[:6] if c_mm else ""
+        mm=_norm_month(row.get(c_mm, "")) if c_mm else ""
         if mm in ("", "nan", "None"): continue
         buf.append(BusinessDay(
             yyyymm=mm,
-            elapsed_days=safe_int(row.get(c_elapsed, 0)) if c_elapsed else 0,
-            total_days=safe_int(row.get(c_total, 0)) if c_total else 0,
-            annual_elapsed_days=safe_int(row.get(c_ae, 0)) if c_ae else 0,
-            annual_total_days=safe_int(row.get(c_at, 0)) if c_at else 0,
+            elapsed_days=safe_float(row.get(c_elapsed, 0)) if c_elapsed else 0.0,
+            total_days=safe_float(row.get(c_total, 0)) if c_total else 0.0,
+            annual_elapsed_days=safe_float(row.get(c_ae, 0)) if c_ae else 0.0,
+            annual_total_days=safe_float(row.get(c_at, 0)) if c_at else 0.0,
         ))
         if len(buf) >= BATCH: db.bulk_save_objects(buf); db.commit(); buf=[]
     if buf: db.bulk_save_objects(buf); db.commit()
@@ -1869,12 +1941,12 @@ async def get_summary(
                               Commission.channel_type,func.sum(Commission.amount)) \
             .filter(Commission.amount>0) \
             .group_by(Commission.commission_policy_name,Commission.commission_policy,Commission.channel_type) \
-            .order_by(func.sum(Commission.amount).desc()).limit(25).all()
+            .order_by(func.sum(Commission.amount).desc()).limit(120).all()
         comm_by_policy=[]
         for r in _raw_policy:
             nm,cd_val=r[0] or "",r[1] or ""
             if nm in ("","nan") and cd_val in ("","nan"): continue
-            cls=classify_commission_policy(nm, "", cd_val)
+            cls=classify_commission_policy(nm, "", cd_val, r[2] or "")
             comm_by_policy.append({
                 "policy_name": nm if nm not in ("","nan") else cd_val,
                 "policy_code": cd_val,
@@ -1926,10 +1998,10 @@ async def get_commission(
         rows = q.filter(Commission.amount>0)\
             .group_by(Commission.commission_policy_name,Commission.commission_policy,
                       Commission.channel_type,Commission.item_code,Commission.agency_name)\
-            .order_by(func.sum(Commission.amount).desc()).limit(50).all()
+            .order_by(func.sum(Commission.amount).desc()).limit(300).all()
         items=[]
         for r in rows:
-            cls=classify_commission_policy(r[0],r[3],r[1])
+            cls=classify_commission_policy(r[0],r[3],r[1],r[2] or "")
             items.append({"policy_name":r[0],"policy_code":r[1],"channel":r[2],"item":r[3],
                           "agency":r[4],"amount":float(r[5] or 0),
                           "series":cls["series"],"channel_cls":cls["channel_cls"],
@@ -1943,7 +2015,7 @@ async def get_commission(
 # ── Commission 실무분류 함수 ─────────────────────────────────────
 import re as _re
 
-def classify_commission_policy(policy_name: str, item_code: str, policy_code: str = "") -> dict:
+def classify_commission_policy(policy_name: str, item_code: str, policy_code: str = "", channel_hint: str = "") -> dict:
     """
     정책명/코드에서 채널·유형 분류
     MRA = 소매(Retail Agency)
@@ -1958,12 +2030,14 @@ def classify_commission_policy(policy_name: str, item_code: str, policy_code: st
     """
     nm = policy_name or ""
     cd = policy_code or ""
+    hint = f"{nm} {cd} {channel_hint}".lower()
 
     # 1) 영문 MRA/MWA/MBA 형식: "2605-MRA-01-004" 또는 "MRA-01"
     m = _re.search(r'(MRA|MWA|MBA|MPA|MRN|MZC|MRO)-(\d{2})', nm) or \
         _re.search(r'(MRA|MWA|MBA|MPA|MRN|MZC|MRO)-(\d{2})', cd)
     series = m.group(1) if m else None
     num = int(m.group(2)) if m else None
+    raw_num = None
 
     # 2) 한글 형식: "YYYY-무선-A-NNN" 또는 "YYYY-특수-A-NNN"
     if series is None:
@@ -1977,6 +2051,13 @@ def classify_commission_policy(policy_name: str, item_code: str, policy_code: st
             series = letter_map.get(mk.group(1).upper(), 'MRA')
             raw_num = int(mk.group(2))
             num = raw_num // 10 if raw_num >= 10 else raw_num
+            if mk.group(1).upper() == 'A' and (raw_num in (2, 3, 4, 5, 6) or 43 <= raw_num <= 88):
+                series = 'MWA'
+
+    if any(x in hint for x in ("도매", "온라인", "비대면", "wholesale", "mwa", "2-1.")):
+        series = "MWA"
+    elif any(x in hint for x in ("소매", "mra", "1-1.", "1-2.")):
+        series = series or "MRA"
 
     # 3) 채널 분류
     if series in ("MRA", "MRO"):
@@ -1997,6 +2078,10 @@ def classify_commission_policy(policy_name: str, item_code: str, policy_code: st
         6: "부가서비스활성화", 7: "Pre-Sales/신모델", 8: "신모델 SCM", 9: "목표달성/시상",
     }
     policy_type = _type_map.get(num, f"기타({num:02d})" if num is not None else "기타")
+    if raw_num in (2, 3, 4, 5, 6):
+        policy_type = "기본정책"
+    elif raw_num is not None and 43 <= raw_num <= 88:
+        policy_type = "주간 시장대응"
 
     # 5) 항목유형
     item_type = {"F300": "활성화", "F420": "유지", "F432": "부가서비스"}.get(item_code, item_code or "기타")
@@ -2470,22 +2555,37 @@ async def get_subsidy(model: str = None, carrier: str = None, limit: int = 200):
         db.close()
 
 @app.get("/api/forecast")
-async def get_forecast(yyyymm: str = None):
+async def get_forecast(
+    yyyymm: str = None,
+    bonbu_list: List[str] = Query(default=[]),
+    team_list: List[str] = Query(default=[]),
+    channel_list: List[str] = Query(default=[]),
+    agency: str = None,
+):
     db = SessionLocal()
     try:
         if not yyyymm:
-            yyyymm = db.query(func.max(BusinessDay.yyyymm)).scalar() or ""
+            yyyymm = db.query(func.max(Sales.yyyymm)).filter(Sales.yyyymm!="", Sales.yyyymm!="nan").scalar() or \
+                     db.query(func.max(BusinessDay.yyyymm)).scalar() or ""
+        yyyymm = _norm_month(yyyymm)
         bd = db.query(BusinessDay).filter(BusinessDay.yyyymm==yyyymm).first()
-        elapsed = bd.elapsed_days if bd and bd.elapsed_days else 0
-        total = bd.total_days if bd and bd.total_days else 0
-        annual_elapsed = bd.annual_elapsed_days if bd and bd.annual_elapsed_days else 0
-        annual_total = bd.annual_total_days if bd and bd.annual_total_days else 0
+        elapsed = float(bd.elapsed_days) if bd and bd.elapsed_days else 0.0
+        total = float(bd.total_days) if bd and bd.total_days else 0.0
+        annual_elapsed = float(bd.annual_elapsed_days) if bd and bd.annual_elapsed_days else 0.0
+        annual_total = float(bd.annual_total_days) if bd and bd.annual_total_days else 0.0
         # 당월 판매 실적 (해당 yyyymm 필터)
-        cur_sale = int(db.query(func.sum(Sales.sale_count)).filter(Sales.yyyymm==yyyymm).scalar() or 0) if yyyymm else 0
-        if cur_sale == 0:
-            cur_sale = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        def af(q):
+            if bonbu_list: q = q.filter(Sales.bonbu.in_(bonbu_list))
+            if team_list: q = q.filter(Sales.team.in_(team_list))
+            if channel_list: q = q.filter(Sales.channel_sub.in_(channel_list))
+            if agency: q = q.filter(Sales.agency==agency)
+            return q
+
+        cur_sale = int(af(db.query(func.sum(Sales.sale_count))).filter(Sales.yyyymm==yyyymm).scalar() or 0) if yyyymm else 0
         # 연간 누계 판매
-        annual_sale = int(db.query(func.sum(Sales.sale_count)).scalar() or 0)
+        year_start = (yyyymm[:4] + "01") if yyyymm and len(yyyymm) >= 4 else ""
+        annual_sale = int(af(db.query(func.sum(Sales.sale_count)))
+            .filter(Sales.yyyymm>=year_start, Sales.yyyymm<=yyyymm).scalar() or 0) if year_start else 0
         month_forecast = round(cur_sale / elapsed * total) if elapsed > 0 and total > 0 else cur_sale
         annual_forecast = round(annual_sale / annual_elapsed * annual_total) if annual_elapsed > 0 and annual_total > 0 else annual_sale
         return {

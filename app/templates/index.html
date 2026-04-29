@@ -187,24 +187,25 @@ tr:hover td{background:#f0f8f8}
     <input type="file" id="fInv" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fInv').click()">📦 재고</button>
     <input type="file" id="fSub" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fSub').click()">👥 가입자</button>
     <input type="file" id="fComm" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fComm').click()">💰 수수료</button>
+    <input type="file" id="fSubsidy" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fSubsidy').click()">🏷️ 지원금</button>
     <input type="file" id="fStoreSales" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fStoreSales').click()">🏪 소매</button>
     <input type="file" id="fStoreAddress" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fStoreAddress').click()">📍 매장주소</button>
     <input type="file" id="fKtoa" accept=".xlsx"><button class="ubtn" onclick="document.getElementById('fKtoa').click()">📡 KTOA</button>
   </div>
 </div>
 <div class="tab-bar">
-  <div class="tab active" onclick="switchTab(0)">① 조직·대리점</div>
-  <div class="tab" onclick="switchTab(1)">② 판매Quality</div>
-  <div class="tab" onclick="switchTab(2)">③ 가입구조</div>
-  <div class="tab" onclick="switchTab(3)">④ 채널건전성</div>
-  <div class="tab" onclick="switchTab(4)">⑤ 단말·재고</div>
-  <div class="tab" onclick="switchTab(5)">⑥ 수수료</div>
-  <div class="tab" onclick="switchTab(6)">⑦ KTOA순증</div>
-  <div class="tab" onclick="switchTab(7)" style="color:var(--t1)">⑧ 판매정책·경쟁분석</div>
-  <div class="tab" onclick="switchTab(8)">⑨ 가입자분석</div>
-  <div class="tab" onclick="switchTab(9)" style="color:#e67700">⑩ 시장정보</div>
-  <div class="tab" onclick="switchTab(10)" style="color:#0077cc;font-weight:700">⑪ 월별추이</div>
-  <div class="tab" onclick="switchTab(11)" style="color:var(--t1);font-weight:700">⑫ 소매 매장실적</div>
+  <div class="tab active" data-tab="6" onclick="switchTab(6)">① KTOA순증</div>
+  <div class="tab" data-tab="0" onclick="switchTab(0)">② 조직·대리점</div>
+  <div class="tab" data-tab="7" onclick="switchTab(7)" style="color:var(--t1)">③ 지원금·정책분석</div>
+  <div class="tab" data-tab="9" onclick="switchTab(9)" style="color:#e67700">④ 타사경쟁·시장정보</div>
+  <div class="tab" data-tab="11" onclick="switchTab(11)" style="color:var(--t1);font-weight:700">⑤ 소매 매장분석</div>
+  <div class="tab" data-tab="10" onclick="switchTab(10)" style="color:#0077cc;font-weight:700">⑥ 월별 조직성과</div>
+  <div class="tab" data-tab="3" onclick="switchTab(3)">⑦ 채널건전성</div>
+  <div class="tab" data-tab="4" onclick="switchTab(4)">⑧ 단말·재고</div>
+  <div class="tab" data-tab="5" onclick="switchTab(5)">⑨ 수수료</div>
+  <div class="tab" data-tab="8" onclick="switchTab(8)">⑩ 가입자분석</div>
+  <div class="tab" data-tab="1" onclick="switchTab(1)">⑪ 판매Quality</div>
+  <div class="tab" data-tab="2" onclick="switchTab(2)">⑫ 가입구조</div>
 </div>
 <div class="global-fb">
   <div><div class="fb-label">기준월</div>
@@ -485,6 +486,7 @@ tr:hover td{background:#f0f8f8}
 
 <!-- TAB 6 -->
 <div class="tab-panel" id="tab6">
+  <div class="card" id="homePolicyMonitor" style="margin-bottom:8px"></div>
   <!-- KTOA 서브탭 + 기간필터 -->
   <div style="display:flex;align-items:center;gap:0;border-bottom:2px solid var(--border);margin-bottom:8px">
     <div class="stab active" id="ktoaStMNO" onclick="setKtoaFilter('MNO')" style="font-size:10px">📡 MNO 순증</div>
@@ -515,21 +517,21 @@ tr:hover td{background:#f0f8f8}
   <!-- MVNO 이동 전용 패널 -->
   <div id="ktoaMVNOPanel" style="display:none;margin-top:7px">
     <div style="background:#f0f0ff;border:1px solid #9999ee;border-radius:6px;padding:6px 12px;font-size:9px;color:#3333aa;margin-bottom:8px">
-      📡 <b>MNO↔MVNO 이동:</b> KT.MVNO / SKT.MVNO / LGU.MVNO와의 이동량. MNO사업자로 유입(↑) vs MVNO로 이탈(↓)
+      📡 <b>MNO↔MVNO 이동:</b> SKT/KT/LGU 각각의 MVNO 유입(신규)과 MVNO 이탈(해지), 순증을 KTOA 원본 기준으로 계산합니다.
     </div>
-    <div class="ktoa-summary" id="ktoaMVNOKpi" style="grid-template-columns:repeat(4,1fr);margin-bottom:8px"></div>
+    <div class="ktoa-summary" id="ktoaMVNOKpi" style="grid-template-columns:repeat(5,1fr);margin-bottom:8px"></div>
     <div class="row r2" style="margin-bottom:7px">
-      <div class="card"><div class="ch"><div class="ct">MVNO 이동 추이 (최근 30일)</div></div><canvas id="ktoaMVNOTrend"></canvas></div>
-      <div class="card"><div class="ch"><div class="ct">KT MVNO 이동 구성</div></div><canvas id="ktoaMVNOPie"></canvas></div>
+      <div class="card"><div class="ch"><div class="ct">MVNO 순증 추이 (최근 30일)</div></div><canvas id="ktoaMVNOTrend"></canvas></div>
+      <div class="card"><div class="ch"><div class="ct">MVNO 신규 비중</div></div><canvas id="ktoaMVNOPie"></canvas></div>
     </div>
     <div class="card">
-      <div class="ch"><div class="ct">MVNO 이동 상세 (최근 20일)</div><div class="cs">KT기준 MVNO사업자별</div></div>
+      <div class="ch"><div class="ct">MVNO 이동 상세 (최근 20일)</div><div class="cs">사업자별 신규·해지·순증</div></div>
       <div class="tw"><table><thead><tr>
         <th>날짜</th>
-        <th class="num">KT→K.MV</th><th class="num">K.MV→KT</th>
-        <th class="num">KT→S.MV</th><th class="num">S.MV→KT</th>
-        <th class="num">KT→L.MV</th><th class="num">L.MV→KT</th>
-        <th class="num" style="font-weight:700">KT MVNO순증</th>
+        <th class="num txt-b">S신규</th><th class="num txt-r">S해지</th><th class="num txt-b">S순증</th>
+        <th class="num" style="color:var(--t1)">K신규</th><th class="num txt-r">K해지</th><th class="num" style="color:var(--t1)">K순증</th>
+        <th class="num txt-g">L신규</th><th class="num txt-r">L해지</th><th class="num txt-g">L순증</th>
+        <th class="num" style="font-weight:700">총순증</th>
       </tr></thead><tbody id="ktoaMVNOTbody"></tbody></table></div>
     </div>
   </div>
@@ -551,6 +553,13 @@ tr:hover td{background:#f0f8f8}
   <!-- 정책맵 -->
   <div id="sp0">
     <div style="font-size:10px;color:var(--muted);margin-bottom:8px">카드 클릭 시 정책 상세 · 수수료 테이블 · 변경이력 확인. 기준: 2026년 4월</div>
+    <div class="card" style="margin-bottom:8px">
+      <div class="ch"><div class="ct">지원금 파일 기반 분석</div><div class="cs" id="subsidyStatus">SUBSIDY 업로드/seed 데이터 기준</div></div>
+      <div class="tw" style="max-height:180px"><table>
+        <thead><tr><th>일자</th><th>사업자</th><th>단말</th><th>가입유형</th><th>채널</th><th class="num">지원금</th></tr></thead>
+        <tbody id="subsidyTbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:12px">지원금 데이터를 불러오는 중...</td></tr></tbody>
+      </table></div>
+    </div>
     <div class="pm-section"><div class="pm-hdr retail">🏪 소매 채널 정책</div><div class="pm-cards" id="pmRetail"></div></div>
     <div class="pm-section"><div class="pm-hdr wholesale">🏭 도매·온라인 채널 정책</div><div class="pm-cards" id="pmWholesale"></div></div>
     <div class="pm-section"><div class="pm-hdr common">🔗 공통 정책</div><div class="pm-cards" id="pmCommon"></div></div>
@@ -1031,7 +1040,7 @@ tr:hover td{background:#f0f8f8}
 <script>
 // ═══ 전역 상태 변수 (최상단 선언) ═══════════════════════════
 let D=null, KTOA=null, FD=null;
-let currentTab=0, drillLevel='bonbu', currentSubTab=0;
+let currentTab=6, drillLevel='bonbu', currentSubTab=0;
 let curAgency=null, agList=[];
 let selBonbu=new Set(), selTeam=new Set(), selCh=new Set(), selPolicy=new Set(), selMonth=new Set();
 const charts={};
@@ -1079,6 +1088,31 @@ const escQ=s=>String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(
 const CH_SHORT={'1-1. 소매_매장':'소·매장','1-2. 소매_플라자':'소·플라자','1-3. 소매_대형마트':'소·대형마트','2-1. 도매':'도매','3-1. 비대면_직접(KT샵)':'비·KT샵','3-2. 비대면_직접(고객센터)':'비·고객센터','4-1. 비대면_간접(온라인_일반)':'비·일반온','4-2. 비대면_간접(온라인_매집)':'비·특수온','4-3. 비대면_간접(온라인_사외)':'비·사외온','4-4. 비대면_간접(유선_도매)':'비·유선도매','5-1. 대형유통_B2C':'대형B2C','5-2. 대형유통_B2B':'대형B2B','6-1. 방문판매_유선대리점':'방·유선','6-2. 방문판매_가판':'방·가판','6-3. 방문판매_KT서비스':'방·KTS','6-4. 방문판매_프론티어/MOT':'방·프론티어','6-5. 방문판매_KT프로':'방·KT프로','6-6. 방문판매_기타(토탈)':'방·토탈','7-1. 기업_기업마부':'기·기업마부','7-2. 기업_기업외 전략':'기·기업외','7-3. 기업_고객본부(버티컬)':'기·버티컬','8-1. 기타':'기타','8-2. 외국인여권':'외국인여권'};
 const shortCh=raw=>CH_SHORT[raw]||raw;
 const fmtMonth=raw=>raw&&raw.length>=6?`${raw.slice(0,4)}년 ${raw.slice(4,6)}월`:raw;
+const currentMonthKey=()=>{const d=new Date();return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}`;};
+let _monthList=[];
+function defaultMonthFromList(months){
+  const cur=currentMonthKey();
+  return (months||[]).includes(cur)?cur:((months||[]).find(m=>String(m||'').slice(0,4)===cur.slice(0,4))||(months||[])[0]||'');
+}
+function setDefaultMonthSelection(months){
+  if(selMonth.size)return;
+  const m=defaultMonthFromList(months||_monthList);
+  if(m)selMonth.add(m);
+}
+function selectedMonthsSorted(){return [...selMonth].filter(Boolean).sort();}
+function isCurrentMonthOnly(){const a=selectedMonthsSorted();return a.length===1&&a[0]===currentMonthKey();}
+function ytdMonths(){
+  const cur=currentMonthKey(), year=cur.slice(0,4), mm=Number(cur.slice(4,6));
+  return Array.from({length:mm},(_,i)=>`${year}${String(i+1).padStart(2,'0')}`);
+}
+function isYtdCurrentSelection(){
+  const need=ytdMonths(), a=selectedMonthsSorted();
+  return a.length===need.length&&need.every(m=>selMonth.has(m));
+}
+function forecastMonthKey(){
+  const cur=currentMonthKey();
+  return (_monthList||[]).includes(cur)?cur:(selectedMonthsSorted().slice(-1)[0]||defaultMonthFromList(_monthList)||cur);
+}
 
 // charts, D, KTOA 등: 최상단 선언됨
 
@@ -1129,7 +1163,10 @@ function combo(id,labels,barData,lineData,bL='판매량',lL='ARPU'){
 
 function grouped(id,labels,datasets,showLbl=false){
   dc(id);const el=document.getElementById(id);if(!el)return;
-  const ds=datasets.map(d=>({...d,datalabels:showLbl?{display:true,formatter:v=>v===0?'':fmt(Math.abs(v)),color:'#fff',font:{size:7,weight:'bold'},anchor:'center',align:'center',clamp:true}:{display:false}}));
+  const ds=datasets.map(d=>{
+    const max=Math.max(...(d.data||[]).map(v=>Math.abs(Number(v)||0)),1);
+    return {...d,datalabels:showLbl?{display:ctx=>Math.abs(Number(ctx.dataset.data[ctx.dataIndex])||0)>=max*0.16,formatter:v=>v===0?'':fmt(Math.abs(v)),color:'#fff',font:{size:7,weight:'bold'},anchor:'center',align:'center',clamp:true}:{display:false}};
+  });
   charts[id]=new Chart(el,{type:'bar',data:{labels,datasets:ds},
     options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8}}},
       scales:{x:{ticks:{font:{size:8},maxRotation:30},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:8}},grid:{color:'#f0f0f0'}}}}});
@@ -1241,14 +1278,19 @@ async function refreshSubFilters(){
 async function resetFilters(){
   selBonbu.clear();selTeam.clear();selCh.clear();selMonth.clear();curAgency='';
   document.getElementById('agencySearch').value='';
+  setDefaultMonthSelection(_monthList);
   updateCount('cntBonbu',selBonbu);updateCount('cntTeam',selTeam);updateCount('cntCh',selCh);updateCount('cntMonth',selMonth);
   resetDrill();
   const f=await(await fetch('/api/filters')).json();
+  _monthList=f.month_list||_monthList;
+  selMonth.clear();
+  setDefaultMonthSelection(_monthList);
   buildDD('listBonbu',f.bonbu_list,selBonbu,'toggleBonbu',null);
   buildDD('listTeam',f.team_list,selTeam,'toggleTeam',null);
   buildDD('listCh',f.channel_list,selCh,'toggleCh',shortCh);
   if(f.policy_list)buildDD('listPolicy',f.policy_list,selPolicy,'togglePolicy',null);
   if(f.month_list)buildDD('listMonth',f.month_list,selMonth,'toggleMonth',fmtMonth);
+  updateCount('cntMonth',selMonth);
   agList=f.agency_list;loadData();
 }
 function onAgencySearch(){
@@ -1392,10 +1434,13 @@ async function loadData(){
   selCh.forEach(c=>p.append('channel_list',c));
   selMonth.forEach(m=>p.append('yyyymm_list',m));
   if(curAgency)p.append('agency',curAgency);
+  const fp=new URLSearchParams(p);
+  fp.delete('yyyymm_list');
+  fp.set('yyyymm',forecastMonthKey());
   try{
     const [resp, fResp] = await Promise.all([
       fetch('/api/summary?'+p),
-      fetch('/api/forecast')
+      fetch('/api/forecast?'+fp)
     ]);
     if(!resp.ok)throw new Error('API '+resp.status);
     D=await resp.json();
@@ -1427,7 +1472,7 @@ async function loadData(){
 }
 
 function switchTab(i){
-  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',i===j));
+  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',Number(t.dataset.tab ?? j)===i));
   document.querySelectorAll('.tab-panel').forEach(p=>{p.style.display='none';p.classList.remove('active');});
   const panel=document.getElementById(`tab${i}`);
   if(panel){panel.style.display='block';panel.classList.add('active');}
@@ -1482,12 +1527,12 @@ function renderMainChart(d){
 
   const maxT=Math.max(...sales,1);
   charts['mainChart']=new Chart(el,{type:'bar',data:{labels,datasets:[
-    {label:'010신규',data:n010,backgroundColor:T2+'dd',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#fff',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.04?`010:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
-    {label:'M.MNP',data:mmnp,backgroundColor:BLU+'dd',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#fff',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.04?`MM:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
-    {label:'V.MNP',data:vmnp,backgroundColor:'#a9e34b',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#344',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.04?`VM:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
-    {label:'기변',data:prem,backgroundColor:AMB+'dd',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#fff',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.04?`기:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+    {label:'010신규',data:n010,backgroundColor:T2+'dd',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#fff',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.12?`010:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+    {label:'M.MNP',data:mmnp,backgroundColor:BLU+'dd',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#fff',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.12?`MM:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+    {label:'V.MNP',data:vmnp,backgroundColor:'#a9e34b',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#344',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.12?`VM:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
+    {label:'기변',data:prem,backgroundColor:AMB+'dd',stack:'sale',borderRadius:0,datalabels:{display:'auto',color:'#fff',font:{size:6.5,weight:'bold'},formatter:(v,ctx)=>v>=sales[ctx.dataIndex]*0.12?`기:${fmt(v)}(${pctOf(v,sales[ctx.dataIndex]||1)}%)`:'',anchor:'center',align:'center',clamp:true,textAlign:'center'}},
     {label:'총판매',data:sales,type:'line',borderWidth:0,pointRadius:0,yAxisID:'y',datalabels:{display:'auto',color:T1,font:{size:8,weight:'bold'},formatter:(v,ctx)=>{const g=goals[ctx.dataIndex]||0;return g>0?`총 ${fmt(v)} ▶${Math.round(v/g*100)}%`:`총 ${fmt(v)}`;},anchor:'end',align:'top',offset:2,clamp:true}},
-    {label:'ARPU',data:arpus,type:'line',borderColor:RED,backgroundColor:'transparent',pointRadius:3,pointBackgroundColor:RED,borderWidth:2,yAxisID:'y2',tension:.3,datalabels:{display:'auto',color:RED,font:{size:7,weight:'bold'},formatter:v=>v?fmt(v):'',anchor:'end',align:'top',offset:4}},
+    {label:'ARPU',data:arpus,type:'line',borderColor:RED,backgroundColor:'transparent',pointRadius:3,pointBackgroundColor:RED,borderWidth:2,yAxisID:'y2',tension:.3,datalabels:{display:false}},
     ...(hasGoals?[{label:'목표판매량',data:goals,type:'line',borderColor:'#555',backgroundColor:'transparent',borderDash:[5,3],pointRadius:4,pointBackgroundColor:'#555',borderWidth:2,yAxisID:'y',datalabels:{display:false}}]:[])
   ]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:28,right:24,left:6,bottom:4}},onClick:(_,els)=>{if(els.length)drillDown(labels[els[0].index],'bonbu');},plugins:{legend:{position:'bottom',labels:{font:{size:8},padding:4,boxWidth:8,filter:item=>item.text!=='총판매'}},tooltip:{mode:'index',intersect:false,callbacks:{beforeBody:items=>{const i=items[0].dataIndex,g=goals[i]||0;return g>0?`목표 ${fmt(g)} | 달성 ${Math.round(sales[i]/g*100)}%`:'';},afterBody:items=>{const i=items[0].dataIndex;return[`총판매: ${fmt(sales[i])}`,`신규판매: ${fmt(newSales[i])}`,`010신규: ${fmt(n010[i])} (${pctOf(n010[i],sales[i]||1)}%)`,`M.MNP: ${fmt(mmnp[i])} (${pctOf(mmnp[i],sales[i]||1)}%)`,`V.MNP: ${fmt(vmnp[i])} (${pctOf(vmnp[i],sales[i]||1)}%)`,`기변: ${fmt(prem[i])} (${pctOf(prem[i],sales[i]||1)}%)`,`해지: ${fmt(churns[i])}`,`순증: ${nets[i]>=0?'+':''}${fmt(nets[i])}`];}}}},scales:{x:{stacked:true,ticks:{font:{size:8},maxRotation:30},grid:{display:false}},y:{beginAtZero:true,stacked:true,suggestedMax:maxT*1.16,ticks:{font:{size:8}},grid:{color:'#f5f5f5'}},y2:{position:'right',beginAtZero:false,ticks:{font:{size:7},callback:v=>fmt(v)},grid:{display:false}}}}});
 }
@@ -1509,7 +1554,7 @@ function renderTab0(d){
   const aFcast = FD&&FD.annual_forecast_sale>0 ? FD.annual_forecast_sale : null;
   const fcastSub = FD&&FD.elapsed_days&&FD.total_days ? `${FD.elapsed_days}일/${FD.total_days}일 경과` : '영업일 데이터 필요';
   const aFcastSub = FD&&FD.annual_elapsed_days&&FD.annual_total_days ? `연 ${FD.annual_elapsed_days}/${FD.annual_total_days}일` : '연간 데이터 필요';
-  kpiRow('kpiRow0',[
+  const cards=[
     {label:'총판매',val:fmt(saleOf(t)),sub:saleOf(t)!==saleOf(g)?`필터 ${pct(saleOf(t),saleOf(g))}`:'전체기간'},
     {label:'신규판매',val:fmt(newSale),sub:`${pctOf(newSale,sale)}% | 010+MNP`},
     {label:'010신규',val:fmt(n010),sub:`${pctOf(n010,sale)}%`},
@@ -1519,9 +1564,12 @@ function renderTab0(d){
     {label:'해지',val:fmt(churn),sub:`${pctOf(churn,sale)}%`,cls:'am'},
     {label:'순증',val:(net>=0?'+':'')+fmt(net),badge:net>=0?'순증':'순감',badgeCls:net>=0?'ok':'bad'},
     {label:'ARPU',val:fmt(arpuOf(t)),sub:'원'},
-    {label:'당월 마감예상',val:mFcast?fmt(mFcast)+' 건':'-',sub:fcastSub,badge:mFcast?'예상':'대기',badgeCls:mFcast?'neu':''},
-    {label:'연간 마감예상',val:aFcast?fmt(aFcast)+' 건':'-',sub:aFcastSub,badge:aFcast?'연간예상':'대기',badgeCls:aFcast?'neu':''},
-  ]);
+  ];
+  if(isCurrentMonthOnly())cards.push({label:'당월 마감예상',val:mFcast?fmt(mFcast)+' 건':'-',sub:fcastSub,badge:mFcast?'예상':'대기',badgeCls:mFcast?'neu':''});
+  if(isYtdCurrentSelection())cards.push({label:'연간 마감예상',val:aFcast?fmt(aFcast)+' 건':'-',sub:aFcastSub,badge:aFcast?'연간예상':'대기',badgeCls:aFcast?'neu':''});
+  const k0=document.getElementById('kpiRow0');
+  if(k0)k0.className='krow '+(cards.length>=11?'k11':'k9');
+  kpiRow('kpiRow0',cards);
   if(drillLevel==='bonbu'){
     renderMainChart(d);
     const teamRows=(d.team_detail&&d.team_detail.length?d.team_detail:(d.team||[])).slice(0,15);
@@ -2123,22 +2171,27 @@ function setCommView(v){
 // MRA=소매, MWA=도매/온라인, MBA=공통, MPA=촉진, MRN=지역, MRO=대채기(직영)
 // 번호: 00=인프라, 01=기본정책, 02=매출성장(돈버는모델), 03=STORAGE/2ndDevice,
 //       04=활력/시장대응, 05=장기고객기변, 06=부가서비스, 07=Pre-Sales, 08=SCM, 09=시상
-function parseCommPolicy(name,channel,item){
-  const n=name||'';
+function parseCommPolicy(name,channel,item,code=''){
+  const n=`${name||''} ${code||''}`;
+  const hint=`${n} ${channel||''}`.toLowerCase();
   // 1) 영문 형식: MRA-01, 2605-MRA-01-004
   let sm=n.match(/(MRA|MWA|MBA|MPA|MRN|MZC|MRO)-(\d{2})/);
   let series=sm?sm[1]:null;
   let num=sm?parseInt(sm[2]):null;
+  let raw=null;
   // 2) 한글 형식: YYYY-무선-A-NNN 또는 YYYY-특수-A-NNN
   if(!series){
     const km=n.match(/\d{4}-(?:무선|특수|공통)-([A-Za-z])-(\d{2,3})/);
     if(km){
       const letterMap={A:'MRA',B:'MWA',C:'MBA',D:'MPA',E:'MRN',F:'MZC',R:'MRA',W:'MWA'};
       series=letterMap[km[1].toUpperCase()]||'MRA';
-      const raw=parseInt(km[2]);
+      raw=parseInt(km[2]);
       num=raw>=10?Math.floor(raw/10):raw;
+      if(km[1].toUpperCase()==='A'&&(raw===2||raw===3||raw===4||raw===5||raw===6||(raw>=43&&raw<=88)))series='MWA';
     }
   }
+  if(['도매','온라인','비대면','wholesale','mwa','2-1.'].some(x=>hint.includes(x)))series='MWA';
+  else if(['소매','mra','1-1.','1-2.'].some(x=>hint.includes(x)))series=series||'MRA';
   const channelCls=
     series==='MRA'?'소매':
     series==='MWA'?'도매/온라인':
@@ -2148,7 +2201,9 @@ function parseCommPolicy(name,channel,item){
   const typeMap={0:'인프라(기본수수료)',1:'기본정책',2:'매출성장(돈버는모델)',
     3:'STORAGE/2ndDevice',4:'활력/시장대응',5:'장기고객(기변)',
     6:'부가서비스활성화',7:'Pre-Sales/신모델',8:'신모델 SCM',9:'목표달성/시상'};
-  const policyType=num!==null?(typeMap[num]||`기타(${String(num).padStart(2,'0')})`):'기타';
+  let policyType=num!==null?(typeMap[num]||`기타(${String(num).padStart(2,'0')})`):'기타';
+  if(raw===2||raw===3||raw===4||raw===5||raw===6)policyType='기본정책';
+  else if(raw!==null&&raw>=43&&raw<=88)policyType='주간 시장대응';
   const itemType={'F300':'활성화','F420':'유지','F432':'부가서비스'}[item]||item||'기타';
   const colorMap={'MRA':T1,'MWA':BLU,'MBA':PRP,'MZC':PRP,'MPA':AMB,'MRN':AMB,'MRO':'#555'};
   const color=colorMap[series]||'#888';
@@ -2166,11 +2221,11 @@ async function loadCommission(){
   // AI 분류 테이블
   const items=res.items||[];
   const aiItems=items.map(p2=>{
-    const cls=parseCommPolicy(p2.policy_name,p2.channel,p2.item);
+    const cls=parseCommPolicy(p2.policy_name,p2.channel,p2.item,p2.policy_code);
     return {...p2,...cls};
   });
   document.getElementById('commAITbody').innerHTML=aiItems.map((p2,i)=>{
-    const cls=parseCommPolicy(p2.policy_name,p2.channel,p2.item);
+    const cls=parseCommPolicy(p2.policy_name,p2.channel,p2.item,p2.policy_code);
     return `<tr>
     <td>${i+1}</td>
     <td style="font-weight:700;color:${cls.color||T1};max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p2.policy_name}">${p2.policy_name}</td>
@@ -2185,7 +2240,7 @@ async function loadCommission(){
   // AI 분류 차트 - 채널분류별 (MRA/MWA/MBA)
   const typeMap={};
   aiItems.forEach(it=>{
-    const cls=parseCommPolicy(it.policy_name,it.channel,it.item);
+    const cls=parseCommPolicy(it.policy_name,it.channel,it.item,it.policy_code);
     typeMap[cls.channelCls]=(typeMap[cls.channelCls]||0)+it.amount;
   });
   const typeEntries=Object.entries(typeMap).sort((a,b)=>b[1]-a[1]);
@@ -2204,7 +2259,7 @@ async function loadCommission(){
   // AI 분류 차트 - 정책유형별 (인프라/기본/매출성장 등)
   const planMap={};
   aiItems.forEach(it=>{
-    const cls=parseCommPolicy(it.policy_name,it.channel,it.item);
+    const cls=parseCommPolicy(it.policy_name,it.channel,it.item,it.policy_code);
     planMap[cls.policyType]=(planMap[cls.policyType]||0)+it.amount;
   });
   const planEntries=Object.entries(planMap).filter(e=>e[0]!=='기타').sort((a,b)=>b[1]-a[1]);
@@ -2224,7 +2279,7 @@ async function loadCommission(){
   const policyItems = (D&&D.comm_by_policy&&D.comm_by_policy.length) ? D.comm_by_policy : items;
   const pTp = policyItems.reduce((s,x)=>s+(x.amount||0),0)||1;
   document.getElementById('commPolicyTbody').innerHTML=policyItems.map((p2,i)=>{
-    const cls = parseCommPolicy(p2.policy_name||'',p2.channel||'','');
+    const cls = parseCommPolicy(p2.policy_name||'',p2.channel||'', '', p2.policy_code||'');
     const dispName = p2.display_name || cls.channelCls+' '+cls.policyType;
     const rawCode = p2.policy_code||p2.policy_name||'-';
     const chCls = p2.channel_cls||cls.channelCls;
@@ -2292,6 +2347,7 @@ function resetKtoaFilter(){
 }
 
 async function renderTab6(){
+  renderHomePolicyMonitor();
   if(!KTOA){KTOA=await(await fetch('/api/ktoa')).json();}
   const rows=(KTOA.rows||[]).map(r=>typeof fixKtoa==='function'?fixKtoa(r):r);
   if(!rows.length){document.getElementById('ktoaKpi').innerHTML='<div style="color:var(--muted);padding:20px">KTOA 데이터를 업로드해주세요</div>';return;}
@@ -2323,14 +2379,23 @@ async function renderTab6(){
   const ktIn=sum('KT_유입MNO'),ktOut=sum('KT_이탈MNO');
   const ktInA=sum('KT_유입전체'),ktOutA=sum('KT_이탈전체');
 
-  // MVNO 이동 수치 (KTOA 원본 컬럼에서 파싱)
-  const ktToKMV=sum('KT←MVNO')>0?-sum('MVNO←KT'):0; // KT→MVNO(이탈)
-  const kMVToKT=sum('KT←MVNO');                       // MVNO→KT(유입)
-  const ktMVNONet=kMVToKT+ktToKMV;
+  // MVNO only: 각 MNO 기준 신규(MVNO→MNO), 해지(MNO→MVNO), 순증
+  const mvnoAgg={
+    skt:{name:'SKT', color:BLU, new:sum('SKT←MVNO'), churn:sum('MVNO←SKT')},
+    kt:{name:'KT', color:T1, new:sum('KT←MVNO'), churn:sum('MVNO←KT')},
+    lgu:{name:'LGU+', color:GRN, new:sum('LGU←MVNO'), churn:sum('MVNO←LGU')},
+  };
+  Object.values(mvnoAgg).forEach(x=>x.net=x.new-x.churn);
+  const mvnoNew=mvnoAgg.skt.new+mvnoAgg.kt.new+mvnoAgg.lgu.new;
+  const mvnoChurn=mvnoAgg.skt.churn+mvnoAgg.kt.churn+mvnoAgg.lgu.churn;
+  const mvnoNet=mvnoNew-mvnoChurn;
 
   const latest=valid[valid.length-1];
+  const latestMvno=latest?((latest['SKT←MVNO']||0)-(latest['MVNO←SKT']||0)+(latest['KT←MVNO']||0)-(latest['MVNO←KT']||0)+(latest['LGU←MVNO']||0)-(latest['MVNO←LGU']||0)):0;
   document.getElementById('ktoaLatestLabel').textContent=latest?
-    `최신:${latest.date} KT(MNO)${(latest['KT_순증MNO']||0)>=0?'+':''}${fmt(latest['KT_순증MNO']||0)}`:'';
+    (_ktoaFilter==='MVNO'
+      ? `최신:${latest.date} MVNO순증${latestMvno>=0?'+':''}${fmt(latestMvno)}`
+      : `최신:${latest.date} KT(MNO)${(latest['KT_순증MNO']||0)>=0?'+':''}${fmt(latest['KT_순증MNO']||0)}`):'';
 
   // 이상값 감지
   const sampleKT=latest?.['KT_순증MNO']||0;
@@ -2341,29 +2406,31 @@ async function renderTab6(){
 
   if(_ktoaFilter==='MVNO'){
     // MVNO 전용 뷰
-    const mvIn=sum('KT←MVNO')||0, mvOut=sum('MVNO←KT')||0;
     document.getElementById('ktoaMVNOKpi').innerHTML=`
-      <div class="ktoa-card"><div class="ktoa-op" style="color:${T1}">KT→MVNO(이탈)</div><div class="ktoa-val txt-r">-${fmt(mvOut)}</div><div class="ktoa-sub">KT MNO에서 MVNO 전환</div></div>
-      <div class="ktoa-card"><div class="ktoa-op" style="color:${T2}">MVNO→KT(유입)</div><div class="ktoa-val" style="color:${T1}">+${fmt(mvIn)}</div><div class="ktoa-sub">MVNO에서 KT MNO 복귀</div></div>
-      <div class="ktoa-card"><div class="ktoa-op">MVNO순증(KT기준)</div><div class="ktoa-val" style="color:${(mvIn-mvOut)>=0?T1:RED}">${(mvIn-mvOut)>=0?'+':''}${fmt(mvIn-mvOut)}</div><div class="ktoa-sub">유입-이탈</div></div>
-      <div class="ktoa-card"><div class="ktoa-op">KT전체순증</div><div class="ktoa-val" style="color:${ktAll>=0?T1:RED}">${ktAll>=0?'+':''}${fmt(ktAll)}</div><div class="ktoa-sub">MNO+MVNO</div></div>`;
+      <div class="ktoa-card"><div class="ktoa-op">MVNO only 순증</div><div class="ktoa-val" style="color:${mvnoNet>=0?T1:RED}">${mvnoNet>=0?'+':''}${fmt(mvnoNet)}</div><div class="ktoa-sub">신규 ${fmt(mvnoNew)} - 해지 ${fmt(mvnoChurn)}</div></div>
+      <div class="ktoa-card" style="border-top-color:${BLU}"><div class="ktoa-op txt-b">S 순증</div><div class="ktoa-val txt-b">${mvnoAgg.skt.net>=0?'+':''}${fmt(mvnoAgg.skt.net)}</div><div class="ktoa-sub">신규 ${fmt(mvnoAgg.skt.new)} / 해지 ${fmt(mvnoAgg.skt.churn)}</div></div>
+      <div class="ktoa-card" style="border-top-color:${T1}"><div class="ktoa-op" style="color:${T1}">K 순증</div><div class="ktoa-val" style="color:${mvnoAgg.kt.net>=0?T1:RED}">${mvnoAgg.kt.net>=0?'+':''}${fmt(mvnoAgg.kt.net)}</div><div class="ktoa-sub">신규 ${fmt(mvnoAgg.kt.new)} / 해지 ${fmt(mvnoAgg.kt.churn)}</div></div>
+      <div class="ktoa-card" style="border-top-color:${GRN}"><div class="ktoa-op txt-g">L 순증</div><div class="ktoa-val txt-g">${mvnoAgg.lgu.net>=0?'+':''}${fmt(mvnoAgg.lgu.net)}</div><div class="ktoa-sub">신규 ${fmt(mvnoAgg.lgu.new)} / 해지 ${fmt(mvnoAgg.lgu.churn)}</div></div>
+      <div class="ktoa-card"><div class="ktoa-op">MVNO M.S.</div><div class="ktoa-val">${pct(mvnoAgg.kt.new,mvnoNew)}</div><div class="ktoa-sub">KT 신규 점유율</div></div>`;
     const mv30=valid.slice(-30);
     line('ktoaMVNOTrend',mv30.map(r=>r.date?.slice(5)||''),[
-      {label:'MVNO→KT(복귀)',data:mv30.map(r=>r['KT←MVNO']||0),borderColor:T1,backgroundColor:T1+'22',fill:true,tension:.3,pointRadius:2,
-        datalabels:{display:'auto',formatter:(v,ctx)=>{const avg=mv30.reduce((s,r)=>s+(r['KT←MVNO']||0),0)/mv30.length;return Math.abs(v-avg)>avg*0.3?fmt(v):'';},color:T1,font:{size:7}}},
-      {label:'KT→MVNO(이탈)',data:mv30.map(r=>-(r['MVNO←KT']||0)),borderColor:RED,backgroundColor:'transparent',tension:.3,pointRadius:2,
-        datalabels:{display:false}},
+      {label:'S MVNO순증',data:mv30.map(r=>(r['SKT←MVNO']||0)-(r['MVNO←SKT']||0)),borderColor:BLU,backgroundColor:'transparent',tension:.3,pointRadius:2},
+      {label:'K MVNO순증',data:mv30.map(r=>(r['KT←MVNO']||0)-(r['MVNO←KT']||0)),borderColor:T1,backgroundColor:T1+'22',fill:true,tension:.3,pointRadius:2},
+      {label:'L MVNO순증',data:mv30.map(r=>(r['LGU←MVNO']||0)-(r['MVNO←LGU']||0)),borderColor:GRN,backgroundColor:'transparent',tension:.3,pointRadius:2},
     ],true);
-    pie('ktoaMVNOPie',['MVNO→KT(유입)','KT→MVNO(이탈)'],[mvIn,mvOut],true);
+    pie('ktoaMVNOPie',['SKT 신규','KT 신규','LGU+ 신규'],[mvnoAgg.skt.new,mvnoAgg.kt.new,mvnoAgg.lgu.new],true);
     const mv20=[...valid].reverse().slice(0,20);
     document.getElementById('ktoaMVNOTbody').innerHTML=mv20.map(r=>{
-      const mvI=r['KT←MVNO']||0,mvO=r['MVNO←KT']||0,net=mvI-mvO;
+      const sn=(r['SKT←MVNO']||0),sc=(r['MVNO←SKT']||0),snet=sn-sc;
+      const kn=(r['KT←MVNO']||0),kc=(r['MVNO←KT']||0),knet=kn-kc;
+      const ln=(r['LGU←MVNO']||0),lc=(r['MVNO←LGU']||0),lnet=ln-lc;
+      const total=snet+knet+lnet;
       return `<tr>
         <td style="font-weight:700;color:var(--sub)">${r.date||''}</td>
-        <td class="num txt-r">-${fmt(mvO)}</td><td class="num" style="color:${T1}">+${fmt(mvI)}</td>
-        <td class="num">-</td><td class="num">-</td>
-        <td class="num">-</td><td class="num">-</td>
-        <td class="num" style="color:${net>=0?T1:RED};font-weight:700">${net>=0?'+':''}${fmt(net)}</td>
+        <td class="num txt-b">${fmt(sn)}</td><td class="num txt-r">${fmt(sc)}</td><td class="num" style="color:${snet>=0?BLU:RED};font-weight:700">${snet>=0?'+':''}${fmt(snet)}</td>
+        <td class="num" style="color:${T1}">${fmt(kn)}</td><td class="num txt-r">${fmt(kc)}</td><td class="num" style="color:${knet>=0?T1:RED};font-weight:700">${knet>=0?'+':''}${fmt(knet)}</td>
+        <td class="num txt-g">${fmt(ln)}</td><td class="num txt-r">${fmt(lc)}</td><td class="num" style="color:${lnet>=0?GRN:RED};font-weight:700">${lnet>=0?'+':''}${fmt(lnet)}</td>
+        <td class="num" style="color:${total>=0?T1:RED};font-weight:800">${total>=0?'+':''}${fmt(total)}</td>
       </tr>`;
     }).join('');
     return;
@@ -2458,7 +2525,30 @@ async function renderTab6(){
 
 // ─── TAB 7 정책·경쟁 ───
 function renderTab7(){
+  renderSubsidyPanel();
   switchSubTab(currentSubTab);
+}
+
+async function renderSubsidyPanel(){
+  const body=document.getElementById('subsidyTbody');
+  const status=document.getElementById('subsidyStatus');
+  if(!body)return;
+  try{
+    const js=await(await fetch('/api/subsidy?limit=80&_='+Date.now(),{cache:'no-store'})).json();
+    const items=js.items||[];
+    if(status)status.textContent=`SUBSIDY 기준 ${fmt(items.length)}건`;
+    body.innerHTML=items.slice(0,60).map(r=>`<tr>
+      <td>${r.date||''}</td>
+      <td style="font-weight:700">${r.carrier||'-'}</td>
+      <td style="font-weight:700;color:${T1};max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.model||'-'}</td>
+      <td>${r.join_type||'-'}</td>
+      <td>${r.channel||'-'}</td>
+      <td class="num" style="font-weight:800">${fmt(r.amount||0)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:12px">지원금 파일 데이터가 없습니다.</td></tr>';
+  }catch(e){
+    if(status)status.textContent='지원금 API 확인 필요';
+    body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:12px">지원금 데이터를 불러오지 못했습니다.</td></tr>';
+  }
 }
 
 function switchSubTab(i){
@@ -3800,12 +3890,45 @@ async function renderStoreMap(){
   if(bounds.length)_storeMap.fitBounds(bounds,{padding:[18,18],maxZoom:12});
 }
 
+async function renderHomePolicyMonitor(){
+  const el=document.getElementById('homePolicyMonitor');
+  if(!el)return;
+  try{
+    const js=await(await fetch('/api/market2/timeline?limit=8&_='+Date.now(),{cache:'no-store'})).json();
+    const rows=(js.items||[]).slice(0,6);
+    el.innerHTML=`
+      <div class="ch" style="margin-bottom:4px">
+        <div class="ct">정책변동 모니터링</div>
+        <div class="cs">시장정보 자동화 최신 이벤트</div>
+        <button class="rst" style="font-size:8px;margin-left:auto" onclick="renderHomePolicyMonitor()">새로고침</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(${Math.min(Math.max(rows.length,1),3)},minmax(0,1fr));gap:6px">
+        ${rows.length?rows.map(r=>{
+          const urgent=(r.urgency||'NORMAL')==='HIGH';
+          const amount=r.amount?` · ${fmt(Math.round(r.amount/10000))}만`:'';
+          const carrier=r.carrier&&r.carrier!=='UNKNOWN'?r.carrier:'';
+          return `<div style="border:1px solid var(--border);border-left:3px solid ${urgent?RED:T1};border-radius:6px;padding:7px;min-height:58px;background:${urgent?'#fff5f5':'#fff'}">
+            <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
+              <span class="kbg ${urgent?'bad':'neu'}">${r.urgency||'NORMAL'}</span>
+              <span class="kbg ok">${r.event_cls||'기타'}</span>
+              <span style="font-size:9px;color:var(--muted);margin-left:auto">${String(r.time||'').slice(5,16)}</span>
+            </div>
+            <div style="font-size:10px;font-weight:800;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${carrier} ${r.device_group||r.model_group||''}${amount}</div>
+            <div style="font-size:9px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px">${storeEsc(r.summary||r.raw_text||'')}</div>
+          </div>`;
+        }).join(''):'<div style="color:var(--muted);font-size:10px;padding:8px">시장정보 이벤트가 아직 없습니다.</div>'}
+      </div>`;
+  }catch(e){
+    el.innerHTML='<div class="ch"><div class="ct">정책변동 모니터링</div><div class="cs">시장정보 API 확인 필요</div></div>';
+  }
+}
+
 /* GPT enhancement patch removed: reverted to stable baseline. */
 
 async function init(){
   // 탭 패널 초기 표시 설정: DOM 순서가 아니라 id 기준으로 통제
   document.querySelectorAll('.tab-panel').forEach(p=>{p.style.display='none';p.classList.remove('active');});
-  const firstPanel=document.getElementById('tab0');
+  const firstPanel=document.getElementById(`tab${currentTab}`);
   if(firstPanel){firstPanel.style.display='block';firstPanel.classList.add('active');}
 
   bindUpload('fSales','/upload','판매');
@@ -3813,6 +3936,7 @@ async function init(){
   bindUpload('fInv','/upload/inventory','재고');
   bindUpload('fSub','/upload/subscriber','가입자');
   bindUpload('fComm','/upload/commission','수수료');
+  bindUpload('fSubsidy','/upload/subsidy','지원금');
   bindUpload('fStoreSales','/upload/storesales','소매 매장실적');
   bindUpload('fStoreAddress','/upload/store-addresses','매장 주소록');
   bindUpload('fKtoa','/upload/ktoa','KTOA');
@@ -3829,7 +3953,10 @@ async function init(){
   buildDD('listTeam',f.team_list,selTeam,'toggleTeam',null);
   buildDD('listCh',f.channel_list,selCh,'toggleCh',shortCh);
   if(f.policy_list)buildDD('listPolicy',f.policy_list,selPolicy,'togglePolicy',null);
+  _monthList=f.month_list||[];
+  setDefaultMonthSelection(_monthList);
   if(f.month_list)buildDD('listMonth',f.month_list,selMonth,'toggleMonth',fmtMonth);
+  updateCount('cntMonth',selMonth);
   agList=f.agency_list;
   await loadData();
   if(currentTab===6)renderTab6();
@@ -3853,6 +3980,8 @@ async function init(){
   setTimeout(checkUpdate, 800);
   // 정책 메모 초기 렌더링
   renderPolicyMemos();
+  renderHomePolicyMonitor();
+  setInterval(()=>{if(currentTab===6)renderHomePolicyMonitor(); if(currentTab===9)renderTab9();},60000);
 }
 init();
 </script>
@@ -4102,7 +4231,8 @@ init();
     return box;
   }
   async function getJson(path){
-    const res = await fetch(API + path, {cache:"no-store"});
+    const sep = path.includes("?") ? "&" : "?";
+    const res = await fetch(API + path + sep + "_=" + Date.now(), {cache:"no-store"});
     if (!res.ok) throw new Error(path + " " + res.status);
     return await res.json();
   }
